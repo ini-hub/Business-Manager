@@ -1,4 +1,5 @@
 import { getCashFlowTotals } from "../lib/cashFlow";
+import { isUniqueViolation } from "../db-errors";
 import { getVatByMonth, getServiceStaffDays } from "../lib/storeSummaries";
 import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
@@ -707,7 +708,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       res.status(201).json(result.request);
     } catch (error: any) {
       // The partial unique index is the real guard against duplicate open requests.
-      if (String(error?.code) === "23505") {
+      if (isUniqueViolation(error)) {
         return res.status(409).json({ error: "You already have an open request for that date." });
       }
       console.error("Retro request error:", error);

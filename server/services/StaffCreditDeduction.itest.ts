@@ -69,6 +69,28 @@ afterAll(async () => {
   await closePool();
 });
 
+/** Message of an error and of everything it wraps: drizzle's own message is the SQL, the reason is in `.cause`. */
+function errorText(e: unknown): string {
+  const parts: string[] = [];
+  for (let cur: any = e, depth = 0; cur && depth < 5; cur = cur.cause, depth++) parts.push(String(cur.message ?? cur));
+  return parts.join(" | ");
+}
+
+/**
+ * Resolves once some backend is waiting on a lock. The tests below need "B is blocked behind A" to be true
+ * before they let A go; a fixed sleep guesses at that, and on a remote database a few statements take longer
+ * than the guess.
+ */
+async function waitUntilSomeoneIsBlocked(timeoutMs = 20_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { rows } = await db.execute(sql`SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database() LIMIT 1`);
+    if (rows.length > 0) return;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error("nobody ever blocked on a lock");
+}
+
 describe("proposal sweep", () => {
   it("proposes a staff member's open debt as a capped deduction", async () => {
     const f = await newFixture();
@@ -172,7 +194,7 @@ describe("waiving", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe(proposal.id);
     expect(rows[0].isWaived).toBe(true);
-  });
+  }, 180_000); // three full payroll calculations, each many statements on a remote database
 
   it("keeps a waived line out of every money total", async () => {
     const f = await newFixture();
@@ -280,12 +302,15 @@ describe("settlement", () => {
     const held = new Promise<void>((resolve) => { release = resolve; });
 
     // Transaction A claims the pending rows and holds them.
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => { locked = resolve; });
     const holder = db.transaction(async (tx) => {
       const rows = await selectPendingStaffCreditForUpdate(tx, period.id);
       expect(rows).toHaveLength(1);
+      locked();
       await held;
     });
-    await new Promise((r) => setTimeout(r, 250));
+    await lockTaken;
 
     // Transaction B asks for the same rows. It must wait on A rather than read
     // them; the timeout turns "blocked" into an observable failure.
@@ -294,9 +319,12 @@ describe("settlement", () => {
       return selectPendingStaffCreditForUpdate(tx, period.id);
     });
 
-    await expect(contender).rejects.toThrow(/timeout|canceling statement/i);
-
-    release();
+    try {
+      await expect(contender).rejects.toSatisfy((e) => /timeout|canceling statement/i.test(errorText(e)));
+    } finally {
+      // Always let A go: a failed assertion must not leave a transaction idle until the server kills it.
+      release();
+    }
     await holder;
   });
 
@@ -321,22 +349,28 @@ describe("settlement", () => {
     const held = new Promise<void>((resolve) => { release = resolve; });
 
     // Transaction A: locks the proposal row and settles it, then holds.
+    let settled!: () => void;
+    const settleDone = new Promise<void>((resolve) => { settled = resolve; });
     const settler = db.transaction(async (tx) => {
       await tx.select().from(payrollDeductions).where(eq(payrollDeductions.id, proposal.id)).for("update");
       const [repayment] = await tx.insert(repayments).values({
         creditEntryId: debtId, amountReceived: 8_500, paymentMethod: "payroll_deduction",
       }).returning();
       await tx.update(payrollDeductions).set({ repaymentId: repayment.id }).where(eq(payrollDeductions.id, proposal.id));
+      settled();
       await held;
     });
-    await new Promise((r) => setTimeout(r, 250));
+    await settleDone;
 
     // syncProposals reads its own snapshot (still repaymentId: null, stale
     // label) before A commits, decides to rewrite the label, and its UPDATE
     // blocks on A's lock rather than racing past it.
     const syncer = staffCreditDeductionService.syncProposals(period.id);
-    await new Promise((r) => setTimeout(r, 250));
-    release();
+    try {
+      await waitUntilSomeoneIsBlocked();
+    } finally {
+      release();
+    }
     await Promise.all([settler, syncer]);
 
     const [finalRow] = await db.select().from(payrollDeductions).where(eq(payrollDeductions.id, proposal.id));
@@ -391,7 +425,7 @@ describe("accounting invariant", () => {
     // 5. And none of it counted as cash collected.
     const reps = await db.select().from(repayments).where(eq(repayments.creditEntryId, debtId));
     expect(reps.filter(r => r.paymentMethod === "cash")).toHaveLength(0);
-  });
+  }, 180_000); // calculate, mark paid, then read the ledger: many statements on a remote database
 
   it("never drives take-home negative or feeds carry-forward", async () => {
     const f = await newFixture({ payPerMonth: 20_000 });

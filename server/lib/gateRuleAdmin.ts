@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, or } from "drizzle-orm";
+import { isUniqueViolation } from "../db-errors";
 import { db } from "../db";
 import {
   featureCatalog, featureFlags, featureGateRuleEvents, featureGateRules, orgFeatureEntitlements, organisations,
@@ -130,7 +131,7 @@ export async function createRule(
     await record(created.id, feature!.key, "create", null, created, adminEmail);
     return created;
   } catch (error: any) {
-    if (error?.code === "23505") throw new GateRuleError(409, "That exact rule already exists for this feature.");
+    if (isUniqueViolation(error)) throw new GateRuleError(409, "That exact rule already exists for this feature.");
     throw error;
   }
 }
@@ -162,7 +163,7 @@ export async function updateRule(
     invalidateGateRules();
     return updated;
   } catch (error: any) {
-    if (error?.code === "23505") throw new GateRuleError(409, "That exact rule already exists for this feature.");
+    if (isUniqueViolation(error)) throw new GateRuleError(409, "That exact rule already exists for this feature.");
     throw error;
   }
 }

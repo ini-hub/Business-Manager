@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { isUniqueViolation } from "../db-errors";
 import { db } from "../db";
 import { and, eq, or, sql, inArray } from "drizzle-orm";
 import {
@@ -51,7 +52,7 @@ export class PartnerRepository {
         const [again] = await db.select({ code: organisations.partnerCode }).from(organisations).where(eq(organisations.id, orgId));
         if (again?.code) return again.code;
       } catch (err: any) {
-        if (err?.code !== "23505") throw err; // unique collision: draw another code
+        if (!isUniqueViolation(err)) throw err; // unique collision: draw another code
       }
     }
     throw new Error("Could not generate a partner code.");

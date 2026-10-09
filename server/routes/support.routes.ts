@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from "express";
+import { isUniqueViolation } from "../db-errors";
 import { db } from "../db";
 import { eq, and, desc } from "drizzle-orm";
 import { supportThreads, supportThreadMessages } from "@shared/schema";
@@ -14,7 +15,6 @@ export type RouteMiddlewares = {
 };
 
 // Postgres unique_violation
-const UNIQUE_VIOLATION = "23505";
 
 /**
  * A persistent, per-user conversation with "Support" - used both from the
@@ -124,7 +124,7 @@ export function registerSupportRoutes(app: Express, { isAuthenticated }: RouteMi
             .returning();
           thread = created;
         } catch (err: any) {
-          if (err?.code !== UNIQUE_VIOLATION) throw err;
+          if (!isUniqueViolation(err)) throw err;
           // Lost the race to a concurrent request - the open thread now exists, use it.
           const [existing] = await db
             .select()
