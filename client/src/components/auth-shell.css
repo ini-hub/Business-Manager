@@ -187,3 +187,42 @@
 @media (min-width: 1024px) and (max-height: 860px) {
   .ks .ks-head { margin-bottom: 28px; }
 }
+
+/* Forgot-password delivery method: option buttons that match the inputs */
+.ks .ks-channels { display: grid; gap: 8px; margin-top: 8px; }
+.ks .ks-channel { height: 48px; justify-content: flex-start; padding: 0 16px; border-radius: 8px; border: 1px solid var(--kp-line-strong); background: var(--kp-surface); color: var(--kp-ink); font-size: 15px; font-weight: 600; }
+.ks .ks-channel:hover:not(:disabled) { background: var(--kp-soft); }
+.ks .ks-channel[data-active="true"] { background: var(--kp-accent); border-color: var(--kp-accent); color: #fff; }
+.ks .ks-channel[data-active="true"]:hover:not(:disabled) { background: var(--kp-accent-strong); }
+.ks .ks-channel:disabled { opacity: .5; }
+
+/* Password recovery: step list + safety note in the brand panel, step label
+   and code boxes in the form column. */
+.ks .ks-steps { display: flex; flex-direction: column; gap: 16px; margin-top: 40px; font-size: 16px; }
+.ks .ks-steps li { display: flex; align-items: center; gap: 12px; color: var(--kp-line); }
+.ks .ks-steps li[data-state="current"] { color: #fff; font-weight: 600; }
+.ks .ks-step-dot { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 999px; border: 1px solid var(--kp-line); font-size: 14px; font-weight: 600; }
+.ks .ks-steps li[data-state="current"] .ks-step-dot { background: #fff; color: var(--kp-ink); border-color: #fff; }
+.ks .ks-steps li[data-state="done"] .ks-step-dot { background: var(--kp-accent); border-color: var(--kp-accent); color: #fff; }
+.ks .ks-safety { display: none; }
+@media (min-width: 1024px) {
+  .ks .ks-safety { display: flex; gap: 12px; align-items: flex-start; margin-top: auto; padding: 16px 20px; border: 1px solid rgba(255, 255, 255, .2); border-radius: 12px; font-size: 14px; line-height: 1.5; color: var(--kp-line); }
+  .ks .ks-safety svg { flex: 0 0 auto; margin-top: 2px; color: #fff; }
+}
+.ks .ks-stepno { margin: 0 0 8px; font-size: 13px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--kp-muted); }
+.ks .ks-hint { margin-top: 8px; font-size: 14px; color: var(--kp-muted); }
+.ks .ks-pill { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 4px 4px 4px 14px; border-radius: 999px; background: var(--kp-soft); font-size: 15px; color: var(--kp-ink); }
+.ks .ks-pill span { overflow-wrap: anywhere; }
+.ks .ks-pill button { flex: 0 0 auto; min-height: 36px; padding: 0 14px; border-radius: 999px; background: var(--kp-surface); color: var(--kp-accent); font-size: 14px; font-weight: 600; border: 0; }
+.ks .ks-code { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.ks .ks-code input { height: 56px; width: 100%; padding: 0; text-align: center; font-size: 22px; font-weight: 600; font-family: ui-monospace, monospace; }
+@media (max-width: 599px) { .ks .ks-code input { height: 52px; } }
+.ks .ks-link-btn { background: transparent; border: 0; padding: 0; font-weight: 600; color: var(--kp-accent); }
+.ks .ks-link-btn:disabled { color: var(--kp-muted); }
+.ks .ks-secondary { width: 100%; height: 48px; border-radius: 8px; border: 1px solid var(--kp-line-strong); background: var(--kp-surface); color: var(--kp-ink); font-size: 16px; font-weight: 600; }
+.ks .ks-secondary:hover:not(:disabled) { background: var(--kp-soft); }
+.ks .ks-tick { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border-radius: 999px; background: #e8f4ec; color: #1d6b3a; margin-bottom: 24px; }
+.ks .ks-check-row { display: flex; align-items: center; gap: 12px; font-size: 15px; font-weight: 400; color: var(--kp-ink); }
+.ks .ks-done { text-align: left; }
+.ks-card .ks-form-error { font-size: 14px; color: var(--kp-danger); }
+.ks input[readonly] { background: var(--kp-soft); color: var(--kp-ink-2); cursor: not-allowed; }

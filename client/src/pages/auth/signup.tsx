@@ -1,4 +1,5 @@
 import { AuthShell } from "@/components/auth-shell";
+import { newPasswordSchema } from "@shared/authRules";
 import { ChangeEmailForm, EmailOtpForm, otpIssueFromCode, type OtpIssue } from "@/components/email-otp-form";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -26,14 +27,6 @@ interface LegalDocumentSummary {
   versionNumber: number;
 }
 
-const passwordSchema = z
-  .string()
-  .min(8, "Password must be at least 8 characters")
-  .refine((val) => /[A-Z]/.test(val), "Must include at least one uppercase letter")
-  .refine((val) => /[a-z]/.test(val), "Must include at least one lowercase letter")
-  .refine((val) => /[^A-Za-z0-9]/.test(val), "Must include at least one special character")
-  .refine((val) => !/\s/.test(val), "Password cannot contain spaces");
-
 const signupSchema = z.object({
   ownerName: z.string().min(1, "Your name is required").transform(s => s.trim()),
   businessName: z.string().min(1, "Business name is required").transform(s => s.trim()),
@@ -41,7 +34,7 @@ const signupSchema = z.object({
   phoneCountryCode: z.string().default("+234"),
   phone: z.string().optional(),
   email: z.string().email("Please enter a valid email address"),
-  password: passwordSchema,
+  password: newPasswordSchema,
   confirmPassword: z.string(),
   // Mirrors shared/schema/auth.ts's signupSchema.acceptedLegalTerms - the
   // server re-validates this independently, this is just what keeps the

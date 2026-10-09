@@ -18,8 +18,9 @@ import { PasswordInput, PasswordChecklist } from "@/components/ui/password-input
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { legalDocHref } from "@/lib/legal-docs";
-import { deduplicatedCountryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage } from "@/lib/phone-utils";
+import { deduplicatedCountryCodes, validatePhoneNumber, formatPhoneDisplay, normalizePhoneForStorage, splitNormalizedPhone } from "@/lib/phone-utils";
 import { Spinner } from "@/components/ui/loader";
+import { newPasswordSchema, normalizeEmail } from "@shared/authRules";
 import { SESSION_EXPIRED_PARAM } from "@/lib/queryClient";
 
 export default function Login() {
@@ -46,7 +47,18 @@ export default function Login() {
   >("identifier");
   const [identifier, setIdentifier] = useState("");
   const [identifierDisplay, setIdentifierDisplay] = useState("");
-  const [loginMethod, setLoginMethod] = useState<"email" | "phone">("email");
+  // /auth/login?identifier=... is where a finished password reset lands.
+  const prefill = (() => {
+    if (typeof window === "undefined") return null;
+    const raw = new URLSearchParams(window.location.search).get("identifier");
+    if (!raw) return null;
+    if (raw.startsWith("+")) {
+      const split = splitNormalizedPhone(raw);
+      if (split) return { method: "phone" as const, email: "", phoneCountryCode: split.countryCode, phone: split.localNumber };
+    }
+    return { method: "email" as const, email: raw, phoneCountryCode: "+234", phone: "" };
+  })();
+  const [loginMethod, setLoginMethod] = useState<"email" | "phone">(prefill?.method ?? "email");
   const [isPasswordValid, setIsPasswordValid] = useState(false);
   const [lockoutMsg, setLockoutMsg] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
@@ -119,19 +131,8 @@ export default function Login() {
     password: z.string().min(1, "Password is required"),
   });
 
-  const actPasswordSchema = z
-    .string()
-    .min(8, "Password must be at least 8 characters")
-    .refine((val) => /[A-Z]/.test(val), "Must include at least one uppercase letter")
-    .refine((val) => /[a-z]/.test(val), "Must include at least one lowercase letter")
-    .refine((val) => /[0-9]/.test(val), "Must include at least one number")
-    .refine((val) => /[^A-Za-z0-9]/.test(val), "Must include at least one special character")
-    .refine((val) => !/\s/.test(val), "Password cannot contain spaces");
-
-
-
   const createPasswordFormSchema = z.object({
-    password: actPasswordSchema,
+    password: newPasswordSchema,
     confirmPassword: z.string().min(1, "Confirm password is required"),
   }).refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -140,12 +141,12 @@ export default function Login() {
 
   const emailIdForm = useForm({
     resolver: zodResolver(emailIdentifierSchema),
-    defaultValues: { email: "" },
+    defaultValues: { email: prefill?.email ?? "" },
   });
 
   const phoneIdForm = useForm({
     resolver: zodResolver(phoneIdentifierSchema),
-    defaultValues: { phoneCountryCode: "+234", phone: "" },
+    defaultValues: { phoneCountryCode: prefill?.phoneCountryCode ?? "+234", phone: prefill?.phone ?? "" },
   });
 
   const passForm = useForm({
@@ -726,7 +727,7 @@ export default function Login() {
   });
 
   const onEmailIdentifierSubmit = (data: { email: string }) => {
-    const value = data.email.trim().toLowerCase();
+    const value = normalizeEmail(data.email);
     setIdentifier(value);
     setIdentifierDisplay(value);
     checkIdentityMutation.mutate(value);
@@ -943,7 +944,7 @@ export default function Login() {
                  />
 
                 <div className="flex items-center justify-end">
-                  <Link href="/auth/forgot-password" className="text-xs text-blue-500 hover:underline" data-testid="link-forgot-password">
+                  <Link href={`/auth/forgot-password?identifier=${encodeURIComponent(identifier)}`} className="text-xs text-blue-500 hover:underline" data-testid="link-forgot-password">
                     Forgot password?
                   </Link>
                 </div>

@@ -1720,7 +1720,9 @@ export async function registerRoutes(
         lockoutCount: 0,
       });
 
-      await revokeAllUserSessions(user.id, "password_reset");
+      if (data.signOutOtherDevices !== false) {
+        await revokeAllUserSessions(user.id, "password_reset");
+      }
 
       if (user.email) {
         await sendPasswordChangedEmail(user.email, user.name || user.email);

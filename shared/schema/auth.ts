@@ -260,6 +260,9 @@ export const resetPasswordSchema = z.object({
   otp: z.string().length(6, "OTP must be 6 digits"),
   password: passwordSchema,
   confirmPassword: z.string(),
+  // Defaults to true server-side: a reset ends every other session unless the
+  // person explicitly unticks "Log out of Kowope on all other devices".
+  signOutOtherDevices: z.boolean().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ["confirmPassword"],
