@@ -29,6 +29,7 @@ export const organisations = pgTable("organisations", {
   suspendedAt: timestamp("suspended_at"),
   deletedAt: timestamp("deleted_at"), // Soft-delete 30-day grace period
   deletionReason: text("deletion_reason"),
+  deletedByUserId: varchar("deleted_by_user_id"), // owner who deleted it; null for an admin soft-delete (migration 0127)
   // End of the grace window after a failed renewal (null otherwise). A trial's own grace is
   // derived from trialEndsAt + the configured grace days. See server/lib/trial.ts getOrgLifecycle.
   graceEndsAt: timestamp("grace_ends_at"),
@@ -194,3 +195,31 @@ export const trialReminderLogs = pgTable("trial_reminder_logs", {
 
 export type InsertTrialReminderLog = typeof trialReminderLogs.$inferInsert;
 export type TrialReminderLog = typeof trialReminderLogs.$inferSelect;
+
+// Exit survey filled in by the owner when deleting a business. No FK to
+// organisations on purpose - it survives a permanent purge (migration 0127).
+export const businessDeletionFeedback = pgTable("business_deletion_feedback", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organisationId: varchar("organisation_id").notNull(),
+  organisationName: text("organisation_name").notNull(),
+  userId: varchar("user_id"),
+  userEmail: text("user_email"),
+  reasons: text("reasons").array().notNull().default(sql`'{}'`),
+  details: text("details"),
+  wouldReturn: text("would_return"), // 'yes' | 'maybe' | 'no'
+  contactOk: boolean("contact_ok").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type BusinessDeletionFeedback = typeof businessDeletionFeedback.$inferSelect;
+
+export const DELETION_REASONS = [
+  "too_expensive",
+  "missing_features",
+  "too_complicated",
+  "switching_tool",
+  "closing_business",
+  "bugs_or_reliability",
+  "poor_support",
+  "created_by_mistake",
+  "other",
+] as const;

@@ -25,6 +25,8 @@ export interface JWTPayload {
   email?: string;
   /** auth_sessions.id; absent on tokens minted before session tracking. */
   sid?: string;
+  /** super_admins.id when a super admin is viewing a business as its owner (read-only). */
+  impersonatedBy?: string;
 }
 
 export function generateToken(payload: JWTPayload): string {
@@ -181,6 +183,10 @@ export async function setupAuth(app: Express) {
           id: claims.userId,
           businessId,
         };
+        // A super admin viewing a (deleted) business as its owner can look, never change.
+        if (claims.impersonatedBy && !["GET", "HEAD", "OPTIONS"].includes(req.method) && req.originalUrl.split("?")[0] !== "/api/auth/impersonation/exit") {
+          return res.status(403).json({ error: "This is a read-only view of a deleted business." });
+        }
       }
     }
     
@@ -346,6 +352,12 @@ export const enforceOrgAccess: RequestHandler = async (req, res, next) => {
     const loaded = await loadOrgAccessRecord(user.businessId);
     if (!loaded) return next();
     const { business, subscription } = loaded;
+
+    // Deleted by its owner (or an admin): nobody gets in, except a super
+    // admin's read-only view.
+    if (business.deletedAt && !user.impersonatedBy) {
+      return res.status(403).json({ error: "This business has been deleted.", deleted: true });
+    }
 
     // Lazy renewal charge, same "check on request, no cron" philosophy as
     // trial expiry above. Fire-and-forget: never delays this request, the

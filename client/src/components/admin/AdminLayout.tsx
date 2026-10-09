@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
-import { LayoutDashboard, Building2, Users, Receipt, Megaphone, Heart, History, Shield, LogOut, ChevronLeft, ChevronRight, AlertTriangle, Clock, Menu, X, Map, Coins, MessageSquareWarning, CreditCard, Tag, Layers, Settings, FileText, ListTree, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Building2, Users, Receipt, Megaphone, Heart, History, Shield, LogOut, ChevronLeft, ChevronRight, AlertTriangle, Clock, Menu, X, Map, Coins, MessageSquareWarning, CreditCard, Tag, Layers, Settings, FileText, ListTree, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -207,6 +207,7 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       category: "Operations",
       items: [
         { name: "Businesses", path: "/super-admin/businesses", icon: Building2, roles: ["super_admin", "ops_manager", "support_agent"] },
+        { name: "Deleted Businesses", path: "/super-admin/deleted-businesses", icon: Trash2, roles: ["super_admin"] },
         { name: "Onboarding Funnel", path: "/super-admin/onboarding", icon: Map, roles: ["super_admin", "ops_manager"] },
         { name: "Users Directory", path: "/super-admin/users", icon: Users, roles: ["super_admin", "ops_manager", "support_agent"] },
         { name: "Transactions Ledger", path: "/super-admin/transactions", icon: Receipt, roles: ["super_admin", "ops_manager", "support_agent"] },

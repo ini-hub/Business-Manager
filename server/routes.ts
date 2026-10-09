@@ -875,6 +875,9 @@ export async function registerRoutes(
       }
 
       const org = await storage.getBusinessById(organisationId);
+      if (org?.deletedAt) {
+        return res.status(403).json({ error: "This business has been deleted." });
+      }
 
       const payload = {
         userId: user.id,
@@ -926,6 +929,9 @@ export async function registerRoutes(
       }
 
       const org = await storage.getBusinessById(organisationId);
+      if (org?.deletedAt) {
+        return res.status(403).json({ error: "This business has been deleted." });
+      }
 
       const payload = {
         userId: userId,
@@ -1778,6 +1784,7 @@ export async function registerRoutes(
             businessId: orgId,
             business,
             staffId: ownStaffRecord?.id ?? null,
+            impersonating: req.user.impersonatedBy ? true : undefined,
             password: undefined,
             passwordHash: undefined,
             otpCode: undefined,
@@ -1798,6 +1805,13 @@ export async function registerRoutes(
       auditLogger.logAuthAttempt(undefined, getClientIp(req), false);
       res.status(500).json({ message: "Failed to fetch user" });
     }
+  });
+
+  // Ends a super admin's read-only view of a business and clears the cookie.
+  app.post("/api/auth/impersonation/exit", async (req: any, res) => {
+    if (req.user?.sid) await revokeSession(req.user.sid, "impersonation_exit").catch(() => {});
+    res.clearCookie("jwt_token");
+    res.json({ success: true });
   });
 
   // Get user's active organisations

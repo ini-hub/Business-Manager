@@ -836,3 +836,20 @@ export function sendPartnerInviteEmail(to: string, input: { fromBusiness: string
     }),
   });
 }
+
+export async function sendBusinessDeletedEmail(to: string, name: string, businessName: string, role: "owner" | "member"): Promise<void> {
+  const safeName = escapeHtml(name);
+  const safeBusiness = escapeHtml(businessName);
+  const html = renderEmail({
+    heading: role === "owner" ? "Your business has been deleted" : `${safeBusiness} is no longer available`,
+    preheader: role === "owner" ? "Your data is safely retained for now" : "The owner has closed this business",
+    body:
+      para(`Hi <strong>${safeName}</strong>,`) +
+      (role === "owner"
+        ? para(`<strong>${safeBusiness}</strong> was deleted and can no longer be opened. We're sorry to see you go.`) +
+          muted("If this was a mistake, contact support and we can restore it.")
+        : para(`The owner of <strong>${safeBusiness}</strong> has deleted the business, so you can no longer sign in to it. Your personal account and any other businesses you belong to are not affected.`)),
+    signoff: `The ${escapeHtml(BUSINESS_NAME)} Team`,
+  });
+  sendEmail({ to, subject: `${sanitizeHeaderValue(businessName)} has been deleted`, html });
+}
