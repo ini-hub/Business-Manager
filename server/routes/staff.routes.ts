@@ -228,7 +228,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         ...req.body,
         name: sanitizeString(req.body.name),
         email: sanitizeString(req.body.email)?.toLowerCase(),
-        mobileNumber: sanitizePhoneNumber(req.body.mobileNumber),
+        mobileNumber: sanitizePhoneNumber(req.body.mobileNumber) || null,
         payPerMonth: sanitizeNumber(req.body.payPerMonth),
         signedContract: sanitizeBoolean(req.body.signedContract),
         role: req.body.role || "staff",

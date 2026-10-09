@@ -73,7 +73,7 @@ function displayPhone(staff: StaffRow): string {
     const split = splitNormalizedPhone(staff.workPhone);
     return split ? formatPhoneDisplay(split.localNumber, split.countryCode) : staff.workPhone;
   }
-  return formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234");
+  return staff.mobileNumber ? formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234") : "—";
 }
 
 function InviteStatusBadge({ status }: { status?: StaffInviteStatus }) {

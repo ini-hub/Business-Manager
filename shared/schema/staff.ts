@@ -40,7 +40,7 @@ export const staff = pgTable("staff", {
   lastName: text("last_name"),
   email: text("email").notNull(), // Required for login
   staffNumber: text("staff_number").notNull(),
-  mobileNumber: text("mobile_number").notNull(),
+  mobileNumber: text("mobile_number"), // Optional: the staff member sets their own personal number
   countryCode: text("country_code").notNull().default("+234"), // Default to Nigeria
   payPerMonth: numeric("pay_per_month", { precision: 12, scale: 2, mode: "number" }).notNull(),
   commissionRateOverride: numeric("commission_rate_override", { precision: 5, scale: 4, mode: "number" }), // Nullable: overrides store commission rate
@@ -110,7 +110,7 @@ export const insertStaffSchema = createInsertSchema(staff).omit({ id: true, isAr
   email: z.string().email("Valid email is required"),
   staffNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
-  mobileNumber: trimmedString(1, "Mobile number is required"),
+  mobileNumber: z.string().nullish(),
   role: z.string().default("staff"),
   paymentMethod: z.string().default("hybrid"),
   payPerMonth: z.number(),
