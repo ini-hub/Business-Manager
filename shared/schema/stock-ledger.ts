@@ -21,6 +21,7 @@ export const stockMovementReasons = [
   "partner_transfer_out",
   "partner_transfer_in",
   "audit_adjustment",
+  "write_off",
   "manual_edit",
   "bulk_import",
 ] as const;

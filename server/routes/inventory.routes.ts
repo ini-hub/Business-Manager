@@ -14,6 +14,8 @@ import { sendPlanLimitError, ensureFeatureOrReply, checkCountLimit, CountLimitEr
 import { analyticsService } from "../services/AnalyticsService";
 import { getUserId, getAuditContext, formatZodErrors, getUserStores, verifyStoreAccess, verifyRecordStoreAccess, broadcastChange } from './helpers';
 import { withInventoryId } from '../utils/slug-resolver';
+import { writeOffStock, WriteOffError, WRITE_OFF_REASONS } from "../services/StockWriteOffService";
+import { findArchiveBlockers, describeArchiveBlockers, archiveTargetIds } from "../lib/archiveGuard";
 
 /**
  * Per-type money rules for an inventory row. Returns an error message, or null
@@ -300,7 +302,9 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
     }
   });
 
-  // Archive: soft-delete without checking sales history
+  // Archive: soft-delete without checking sales history. Stock on hand does not block it (archiving is
+  // reversible and the stock stays recorded); stock that an open purchase order, transfer or count still
+  // points at does, so those documents are never left referencing a hidden item.
   app.post("/api/inventory/:id/archive", withInventoryId, requireManagerOrOwner, async (req, res) => {
     try {
       const id = req.params.id;
@@ -308,6 +312,10 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       if (item) {
         if (!await verifyRecordStoreAccess(req, item.storeId)) {
           return res.status(403).json({ error: "You don't have access to this item." });
+        }
+        const itemBlockers = await findArchiveBlockers([id]);
+        if (itemBlockers.length > 0) {
+          return res.status(409).json({ error: describeArchiveBlockers(itemBlockers), blockers: itemBlockers });
         }
         await storage.deleteInventoryItem(id);
         const ctx = await getAuditContext(req, { storeId: item.storeId });
@@ -320,6 +328,10 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       if (!await verifyRecordStoreAccess(req, product.storeId)) {
         return res.status(403).json({ error: "You don't have access to this item." });
       }
+      const productBlockers = await findArchiveBlockers(await archiveTargetIds(id));
+      if (productBlockers.length > 0) {
+        return res.status(409).json({ error: describeArchiveBlockers(productBlockers), blockers: productBlockers });
+      }
       await storage.deleteProduct(id);
       const ctx = await getAuditContext(req, { storeId: product.storeId });
       auditLogger.logEvent(ctx, "INVENTORY_ARCHIVE", "inventory", id, "success", { previousValues: product });
@@ -327,6 +339,45 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
       return res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "We couldn't archive this item. Please try again." });
+    }
+  });
+
+  // Write off an item's remaining stock (damaged, expired, lost). One variant at a time, on purpose: a
+  // write-off removes real stock and the loss is booked at that variant's cost. `recordAsLoss` lets the
+  // owner choose whether the cost reaches the P&L; `archive` hides the item in the same transaction.
+  app.post("/api/inventory/:id/write-off", withInventoryId, requireManagerOrOwner, async (req, res) => {
+    try {
+      const item = await storage.getInventoryItem(req.params.id);
+      if (!item) return res.status(404).json({ error: "Item not found." });
+      if (!await verifyRecordStoreAccess(req, item.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this item." });
+      }
+      const body = z.object({
+        reason: z.enum(WRITE_OFF_REASONS),
+        note: z.string().max(500).optional().nullable(),
+        recordAsLoss: z.boolean(),
+        archive: z.boolean().default(false),
+      }).parse(req.body);
+
+      if (body.archive) {
+        const blockers = await findArchiveBlockers([item.id]);
+        if (blockers.length > 0) {
+          return res.status(409).json({ error: describeArchiveBlockers(blockers), blockers });
+        }
+      }
+
+      const result = await writeOffStock({ inventoryId: item.id, ...body, actorUserId: getUserId(req) });
+      const ctx = await getAuditContext(req, { storeId: item.storeId });
+      auditLogger.logEvent(ctx, "INVENTORY_WRITE_OFF", "inventory", item.id, "success", {
+        previousValues: { quantity: result.quantityWrittenOff },
+        newValues: { quantity: 0, reason: body.reason, note: body.note ?? null, lossRecorded: result.lossRecorded, archived: result.archived },
+      });
+      broadcastChange(req, "inventory", item.storeId, result.archived ? "archived" : "updated");
+      res.json({ quantityWrittenOff: result.quantityWrittenOff, lossRecorded: result.lossRecorded, archived: result.archived });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: formatZodErrors(error.errors) });
+      if (error instanceof WriteOffError) return res.status(400).json({ error: error.message });
+      res.status(500).json({ error: "We couldn't write off this stock. Please try again." });
     }
   });
 
@@ -345,6 +396,10 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
           return res.status(400).json({
             error: "Cannot delete this item — it has existing sales records that must be preserved."
           });
+        }
+        const itemBlockers = await findArchiveBlockers([id]);
+        if (itemBlockers.length > 0) {
+          return res.status(409).json({ error: describeArchiveBlockers(itemBlockers, "delete"), blockers: itemBlockers });
         }
         const deleted = await storage.deleteInventoryItem(id);
         if (!deleted) return res.status(500).json({ error: "We couldn't delete this item. Please try again." });
@@ -369,6 +424,10 @@ export function registerInventoryRoutes(app: Express, { isAuthenticated, require
             error: "Cannot delete this item — one or more variants have existing sales records that must be preserved."
           });
         }
+      }
+      const productBlockers = await findArchiveBlockers(await archiveTargetIds(id));
+      if (productBlockers.length > 0) {
+        return res.status(409).json({ error: describeArchiveBlockers(productBlockers, "delete"), blockers: productBlockers });
       }
       const deleted = await storage.deleteProduct(id);
       if (!deleted) return res.status(500).json({ error: "We couldn't delete this item. Please try again." });

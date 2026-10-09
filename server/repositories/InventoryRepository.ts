@@ -410,6 +410,7 @@ export class InventoryRepository extends BaseRepository<typeof inventory> {
         case "STOCK_TRANSFER_OUT": return { type: "transfer_out", label: "Transfer out" };
         case "INVENTORY_UPDATE": return { type: "other", label: "Details updated" };
         case "INVENTORY_ARCHIVE": return { type: "other", label: "Archived" };
+        case "INVENTORY_WRITE_OFF": return { type: "other", label: "Stock written off" };
         case "INVENTORY_DELETE": return { type: "other", label: "Deleted" };
         case "INVENTORY_BUNDLE_UPDATE": return { type: "other", label: "Bundle components updated" };
         case "INVENTORY_BATCH_CREATE": return { type: "other", label: "Batch added" };

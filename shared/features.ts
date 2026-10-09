@@ -476,6 +476,8 @@ export const FEATURES = [
     routes: [
       { methods: ["DELETE"], path: /^\/api\/inventory\/[^/]+$/ },
       { methods: ["POST"], path: /^\/api\/inventory\/[^/]+\/archive$/ },
+      // Write-off can archive in the same step, so it sits behind the same gate as archiving.
+      { methods: ["POST"], path: /^\/api\/inventory\/[^/]+\/write-off$/ },
     ],
   },
   {
