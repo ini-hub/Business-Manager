@@ -249,7 +249,7 @@ export default function NavigationLayout() {
                       <SelectTrigger className="h-8 w-44" aria-label={`Section for ${item.title}`}>
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent listMaxHeight="360px">
                         {sectionNames.map((s) => (
                           <SelectItem key={s.id} value={s.id}>
                             {s.label}
@@ -299,7 +299,7 @@ export default function NavigationLayout() {
                 <SelectTrigger className="h-8 w-44" aria-label={`Add ${item.title} to a section`}>
                   <SelectValue placeholder="Add to section…" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent listMaxHeight="360px">
                   {sectionNames.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.label}

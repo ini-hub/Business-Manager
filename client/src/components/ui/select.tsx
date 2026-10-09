@@ -72,8 +72,11 @@ const SELECT_LIST_MAX_HEIGHT = "152px"
 
 const SelectContent = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content> & {
+    /** Height of the option list before it scrolls; the default shows four rows. */
+    listMaxHeight?: string
+  }
+>(({ className, children, position = "popper", listMaxHeight = SELECT_LIST_MAX_HEIGHT, ...props }, ref) => {
   const [search, setSearch] = React.useState("")
   const [noMatches, setNoMatches] = React.useState(false)
   const listRef = React.useRef<HTMLDivElement>(null)
@@ -130,7 +133,7 @@ const SelectContent = React.forwardRef<
         <SelectPrimitive.Viewport
           ref={listRef}
           className="p-1"
-          style={{ maxHeight: SELECT_LIST_MAX_HEIGHT }}
+          style={{ maxHeight: listMaxHeight }}
         >
           {children}
           {noMatches && (
