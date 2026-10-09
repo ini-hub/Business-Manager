@@ -53,7 +53,7 @@ export default defineConfig(({ mode }) => {
       // change (which restarts that whole process) no longer drops the
       // frontend's HMR websocket. See server/index.ts's dev branch and
       // package.json's dev/dev:client/dev:server scripts.
-      port: 5173,
+      port: Number(env.VITE_DEV_PORT) || 5173,
       strictPort: true,
       proxy: {
         "/api": { target: `http://localhost:${apiPort}`, changeOrigin: true },
