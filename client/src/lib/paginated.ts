@@ -13,6 +13,7 @@ export interface Paginated<T> {
 }
 
 const WALK_PAGE_SIZE = 200;
+const WALK_CONCURRENCY = 4;
 
 /**
  * Loads every row of a paginated endpoint by walking its pages, for screens that must total, filter or export
@@ -22,13 +23,31 @@ const WALK_PAGE_SIZE = 200;
  * `path` may already carry a query string; page and limit are appended.
  */
 export async function fetchAllPages<T = any>(path: string, init: RequestInit = { credentials: "include" }): Promise<T[]> {
-  const all: T[] = [];
   const sep = path.includes("?") ? "&" : "?";
-  for (let page = 1; ; page++) {
+  const load = async (page: number): Promise<Paginated<T>> => {
     const res = await fetch(`${path}${sep}page=${page}&limit=${WALK_PAGE_SIZE}`, { credentials: "include", ...init });
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
-    const body: Paginated<T> = await res.json();
-    all.push(...body.data);
-    if (!body.pagination?.hasMore) return all;
+    return res.json();
+  };
+
+  // The first page says how many there are; the rest are then fetched a few at a time instead of one after
+  // another, because each request is a separate round trip.
+  const first = await load(1);
+  const all: T[] = [...first.data];
+  const totalPages = first.pagination?.totalPages ?? (first.pagination?.hasMore ? Infinity : 1);
+  if (!first.pagination?.hasMore) return all;
+  if (!Number.isFinite(totalPages)) {
+    for (let page = 2; ; page++) {
+      const body = await load(page);
+      all.push(...body.data);
+      if (!body.pagination?.hasMore) return all;
+    }
   }
+  for (let start = 2; start <= totalPages; start += WALK_CONCURRENCY) {
+    const batch = await Promise.all(
+      Array.from({ length: Math.min(WALK_CONCURRENCY, totalPages - start + 1) }, (_, i) => load(start + i)),
+    );
+    for (const body of batch) all.push(...body.data);
+  }
+  return all;
 }

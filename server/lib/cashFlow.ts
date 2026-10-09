@@ -6,11 +6,13 @@ import { db } from "../db";
  * repayment, expense and cash drop in the period and add them up in Node; it now runs four aggregates in
  * parallel and returns only the totals.
  *
- * The rules are exactly the ones the loops applied:
- *  - a cash sale counts its whole charge; a split sale counts the FIRST cash leg stored on the row (and the
- *    rest is non-cash); anything else is non-cash. Voided checkouts are skipped, payment status is not looked
- *    at. (A receipt's split legs are copied onto each of its line rows, so a multi-line split receipt counts
- *    its cash leg once per line. That is how the report has always read it, kept as is.)
+ * The rules:
+ *  - a cash sale counts its whole charge; a split sale counts the FIRST cash leg stored on its receipt, ONCE,
+ *    and the rest of the receipt is non-cash; anything else is non-cash. Voided checkouts are skipped, payment
+ *    status is not looked at. A receipt is stored as one row per line and its split legs are copied onto every
+ *    one of them; the loops this replaced added that cash leg once per line, which overstated cash (and understated
+ *    non-cash) on any multi-line split receipt. It is counted on the receipt's first line only, so the figures are
+ *    right for old and new sales alike.
  *  - repayments count when paid in cash, by when they were recorded;
  *  - expenses count by their store-local date, deleted ones and the Payroll category excluded (payroll cash
  *    comes from the ledger); cash expenses and the first cash leg of a split are cash out, the rest non-cash;
@@ -41,21 +43,26 @@ export async function getCashFlowTotals(storeId: string, start: Date, end: Date,
   const from = start.toISOString();
   const to = end.toISOString();
 
-  const saleCash = firstCashLeg(sql.raw("c.split_payments"));
   const expenseCash = firstCashLeg(sql.raw("e.split_payments"));
 
   const [sales, repayments, expensesOut, drops] = await Promise.all([
     db.execute(sql`
+      WITH lines AS (
+        SELECT c.payment_method, c.total_charged, c.split_payments,
+               -- the first line of each receipt carries its cash leg; the other lines carry none
+               (row_number() OVER (PARTITION BY c.receipt_number ORDER BY c.id) = 1) AS first_line
+        FROM checkouts c
+        WHERE c.store_id = ${storeId} AND c.is_voided = false
+          AND c.created_at >= ${from}::timestamp AND c.created_at <= ${to}::timestamp
+      )
       SELECT
-        COALESCE(SUM(CASE WHEN c.payment_method = 'cash' THEN c.total_charged
-                          WHEN c.payment_method = 'split' AND c.split_payments IS NOT NULL THEN ${saleCash}
+        COALESCE(SUM(CASE WHEN l.payment_method = 'cash' THEN l.total_charged
+                          WHEN l.payment_method = 'split' AND l.split_payments IS NOT NULL AND l.first_line THEN ${firstCashLeg(sql.raw("l.split_payments"))}
                           ELSE 0 END), 0)::float8 AS cash_sales,
-        COALESCE(SUM(CASE WHEN c.payment_method = 'cash' THEN 0
-                          WHEN c.payment_method = 'split' AND c.split_payments IS NOT NULL THEN c.total_charged - ${saleCash}
-                          ELSE c.total_charged END), 0)::float8 AS non_cash_sales
-      FROM checkouts c
-      WHERE c.store_id = ${storeId} AND c.is_voided = false
-        AND c.created_at >= ${from}::timestamp AND c.created_at <= ${to}::timestamp`),
+        COALESCE(SUM(CASE WHEN l.payment_method = 'cash' THEN 0
+                          WHEN l.payment_method = 'split' AND l.split_payments IS NOT NULL AND l.first_line THEN l.total_charged - ${firstCashLeg(sql.raw("l.split_payments"))}
+                          ELSE l.total_charged END), 0)::float8 AS non_cash_sales
+      FROM lines l`),
     db.execute(sql`
       SELECT COALESCE(SUM(r.amount_received), 0)::float8 AS cash_repayments
       FROM repayments r

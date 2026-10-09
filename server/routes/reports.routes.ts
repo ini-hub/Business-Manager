@@ -1,4 +1,5 @@
 import { getCashFlowTotals } from "../lib/cashFlow";
+import { getVatByMonth, getServiceStaffDays } from "../lib/storeSummaries";
 import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { getStoreTimezone, toUtcStart, toUtcEnd, storeToday } from "../lib/dateUtils";
@@ -176,7 +177,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
 
-      const data = await storage.getStaffPerformance(staffMember.storeId, startDate, endDate);
+      const data = await storage.getStaffPerformance(staffMember.storeId, startDate, endDate, staffMember.id);
       const own = data.find(s => s.id === staffMember.id);
       res.json(own ?? {
         id: staffMember.id,
@@ -272,6 +273,20 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       res.json(paginated(rows, total, page));
     } catch (error) {
       res.status(500).json({ error: "Could not load attendance records." });
+    }
+  });
+
+  // Staff-and-day pairs that did service work, for the attendance screen's active/passive marks. One grouped
+  // statement instead of every receipt the store has ever made.
+  app.get("/api/attendance/service-days", requireManagerOrOwner, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID required." });
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      const days = await getServiceStaffDays(storeId, req.query.startDate as string | undefined, req.query.endDate as string | undefined);
+      res.json({ days });
+    } catch (error) {
+      res.status(500).json({ error: "Could not load service activity." });
     }
   });
 
@@ -864,6 +879,30 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       res.status(500).json({ error: "Bulk expense import failed." });
     }
   });
+  // VAT collected per month, summed by the database.
+  app.get("/api/reports/vat-monthly", requireManagerOrOwner, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+      if (storeId === "all") {
+        const stores = await getUserStores(req);
+        const merged = new Map<string, { month: string; taxableSales: number; vatCollected: number; count: number }>();
+        for (const list of await Promise.all(stores.map(s => getVatByMonth(s.id)))) {
+          for (const m of list) {
+            const cur = merged.get(m.month);
+            if (cur) { cur.taxableSales += m.taxableSales; cur.vatCollected += m.vatCollected; cur.count += m.count; }
+            else merged.set(m.month, { ...m });
+          }
+        }
+        return res.json({ months: Array.from(merged.values()).sort((x, y) => y.month.localeCompare(x.month)) });
+      }
+      if (!(await checkStoreAccess(storeId, req, res))) return;
+      res.json({ months: await getVatByMonth(storeId) });
+    } catch (error) {
+      res.status(500).json({ error: "Could not load the VAT report." });
+    }
+  });
+
   // ---------- 11. CASH FLOW STATEMENT ----------
   app.get("/api/reports/cash-flow", isAuthenticated, async (req, res) => {
     try {

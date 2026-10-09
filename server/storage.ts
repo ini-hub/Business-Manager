@@ -497,7 +497,7 @@ interface IStorage {
   getPayslipRecord(id: string): Promise<any>;
 
   // Staff Performance
-  getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]>;
+  getStaffPerformance(storeId: string, startDate?: string, endDate?: string, onlyStaffId?: string): Promise<any[]>;
   getStaffBreakdown(staffId: string, storeId: string, startDate?: string, endDate?: string): Promise<{ services: any[]; products: any[] }>;
 
   // Search
@@ -1972,8 +1972,8 @@ class DatabaseStorage implements IStorage {
   }
 
   // ─── Staff Performance / Search ────────────────────────────────────────────
-  async getStaffPerformance(storeId: string, startDate?: string, endDate?: string): Promise<any[]> {
-    return this.staffRepo.getStaffPerformance(storeId, startDate, endDate);
+  async getStaffPerformance(storeId: string, startDate?: string, endDate?: string, onlyStaffId?: string): Promise<any[]> {
+    return this.staffRepo.getStaffPerformance(storeId, startDate, endDate, onlyStaffId);
   }
 
   async getStaffBreakdown(staffId: string, storeId: string, startDate?: string, endDate?: string): Promise<{ services: any[]; products: any[] }> {

@@ -97,7 +97,8 @@ async function legacyMix(startDate?: string, endDate?: string) {
 }
 
 async function legacyStock() {
-  const all = await db.select().from(inventory).where(eq(inventory.storeId, f.storeId));
+  // Soft-deleted items are not stock: the dashboard leaves them out, like the inventory list does.
+  const all = (await db.select().from(inventory).where(eq(inventory.storeId, f.storeId))).filter((i) => !i.isDeleted);
   const threshold = 5; // the fixture store has no custom threshold
   const prods = all.filter((i) => i.type === "product"), svcs = all.filter((i) => i.type === "service"), sups = all.filter((i) => i.type === "supply");
   const alerts = [...prods, ...sups].filter((p) => p.quantity <= (p.reorderPoint != null ? p.reorderPoint : threshold));
@@ -118,7 +119,7 @@ beforeAll(async () => {
   await item("prod-out", { quantity: 2, cost: 200, price: 800 });             // sold out -> 0
   await item("prod-fine", { quantity: 200, cost: 400, price: 1500 });
   await item("prod-reorder", { quantity: 50, cost: 100, price: 500, reorderPoint: 100 }); // alert via its own reorder point
-  await item("prod-deleted", { quantity: 0, deleted: true });                  // soft-deleted: still counted, as before
+  await item("prod-deleted", { quantity: 0, deleted: true });                  // soft-deleted: must not count or alert
   await item("svc", { type: "service", quantity: 0, cost: 150, price: 2500 });
   await item("supply", { type: "supply", quantity: 2, cost: 50, price: 0 });   // low supply
 
@@ -191,7 +192,10 @@ describe("dashboard stock figures", () => {
       totalInventory: want.totalInventory, totalProducts: want.totalProducts, totalServices: want.totalServices,
       totalSupplies: want.totalSupplies, outOfStockCount: want.outOfStockCount, lowStockCount: want.lowStockCount,
     });
-    expect(want.outOfStockCount + want.lowStockCount).toBeGreaterThanOrEqual(4);
+    expect(want.outOfStockCount + want.lowStockCount).toBeGreaterThanOrEqual(3);
+    // The deleted item (zero stock, which would otherwise be an out-of-stock alert) is in neither the counts nor the list.
+    expect(got.lowStockItems.some((i) => i.id === ids["prod-deleted"])).toBe(false);
+    expect(want.totalInventory).toBe(6); // seven items seeded, one of them deleted
     // Every listed item is a real alert, out-of-stock items come first, and the list is bounded.
     expect(got.lowStockItems.every((i) => want.alertIds.includes(i.id))).toBe(true);
     expect(got.lowStockItems.length).toBeLessThanOrEqual(20);
