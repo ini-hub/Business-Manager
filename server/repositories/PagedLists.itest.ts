@@ -270,3 +270,44 @@ describe("customers", () => {
     expect(allPaged.sort()).toEqual(all.rows.map((r) => r.id).sort());
   });
 });
+
+describe("products, inventory and staff", () => {
+  it("page across stores in a stable order and cover every row once", async () => {
+    const mkProduct = async (storeId: string, name: string) => {
+      const [p] = await db.insert(products).values({ storeId, name, type: "product" } as any).returning();
+      await db.insert(inventory).values({ storeId, productId: p.id, name, type: "product", costPrice: 1, sellingPrice: 2, quantity: 1 } as any);
+      return p;
+    };
+    // Same name in both stores: only the id tie-break keeps the page boundaries from repeating or dropping one.
+    const tie = `Tie${Date.now()}`;
+    for (const n of [tie, "Oil"]) await mkProduct(f.storeId, n === "Oil" ? `Oil${tie}` : n);
+    for (const n of [tie, "Brush", "Comb"]) await mkProduct(otherStoreId, n === "Brush" ? `Brush${tie}` : n === "Comb" ? `Comb${tie}` : n);
+
+    const both = [f.storeId, otherStoreId];
+    const whole = await storage.getProductsPaginated(both, { page: 1, limit: 100 });
+    expect(whole.pagination.total).toBe(whole.data.length);
+
+    const seen: string[] = [];
+    for (let page = 1; ; page++) {
+      const r = await storage.getProductsPaginated(both, { page, limit: 2 });
+      seen.push(...r.data.map((p: any) => p.id));
+      if (!r.pagination.hasMore) break;
+    }
+    expect(seen).toEqual(whole.data.map((p: any) => p.id));
+    expect(new Set(seen).size).toBe(whole.pagination.total);
+    expect(whole.data.every((p: any) => Array.isArray(p.variants))).toBe(true);
+    expect((await storage.getProductsPaginated(both, { page: 1, limit: 100, search: `brush${tie}` })).pagination.total).toBe(1);
+
+    const invWhole = await storage.getInventoryForStores(both, { page: 1, limit: 100 });
+    const invSeen: string[] = [];
+    for (let page = 1; ; page++) {
+      const r = await storage.getInventoryForStores(both, { page, limit: 2 });
+      invSeen.push(...r.data.map((i) => i.id));
+      if (!r.pagination.hasMore) break;
+    }
+    expect(invSeen).toEqual(invWhole.data.map((i) => i.id));
+
+    const staffWhole = await storage.getStaffPaginated(f.storeId, { page: 1, limit: 100, includeArchived: true });
+    expect(staffWhole.data.map((s) => s.id)).toContain(f.staffId);
+  });
+});

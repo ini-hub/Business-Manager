@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,9 +73,7 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
   const { data: supplyGroups = [] } = useQuery<any[]>({
     queryKey: ["/api/products", storeId, "supplies"],
     queryFn: async () => {
-      const res = await fetch(`/api/products?storeId=${storeId}&include=supplies`);
-      if (!res.ok) return [];
-      const list = await res.json();
+      const list = await fetchAllPages<any>(`/api/products?storeId=${storeId}&include=supplies`);
       return list.filter((p: any) => p.type === "supply");
     },
     enabled: !!storeId,

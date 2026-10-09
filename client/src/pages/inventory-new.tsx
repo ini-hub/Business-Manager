@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useEntitlements } from "@/hooks/useEntitlements";
@@ -251,9 +252,7 @@ export default function InventoryNewPage() {
   const { data: existingItems = [] } = useQuery<any[]>({
     queryKey: ["/api/products", targetStoreId, "with-supplies"],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/products?storeId=${targetStoreId}&include=supplies`);
-      if (!res.ok) return [];
-      return res.json();
+      return fetchAllPages<any>(`/api/products?storeId=${targetStoreId}&include=supplies`);
     },
     enabled: !!targetStoreId,
   });

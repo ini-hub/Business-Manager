@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useQuery } from "@tanstack/react-query";
 import { useStore } from "@/lib/store-context";
 
@@ -44,9 +45,7 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
               if (fetchList) {
                 list = await fetchList(s.id);
               } else {
-                const res = await fetch(`${path}?storeId=${s.id}${suffix}`);
-                if (!res.ok) return [] as (T & { storeName?: string })[];
-                list = (await res.json()) as T[];
+                list = await fetchAllPages<T>(`${path}?storeId=${s.id}${suffix}`);
               }
               return list.map((item) => ({ ...item, storeName: s.name }));
             } catch {
@@ -76,9 +75,7 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
       }
 
       if (fetchList) return fetchList(currentStore!.id);
-      const res = await fetch(`${path}?storeId=${currentStore?.id}${suffix}`);
-      if (!res.ok) throw new Error(`Failed to fetch ${path}`);
-      return res.json();
+      return fetchAllPages<T>(`${path}?storeId=${currentStore?.id}${suffix}`);
     },
     enabled: queryEnabled,
     ...(staleTime !== undefined && { staleTime }),

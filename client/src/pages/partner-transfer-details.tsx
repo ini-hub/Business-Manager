@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -69,7 +70,7 @@ export default function PartnerTransferDetailsPage() {
 
   const { data: ownStock = [] } = useQuery<OwnItem[]>({
     queryKey: ["/api/inventory", t?.fromStoreId, "partner-fulfil"],
-    queryFn: async () => (await apiRequest("GET", `/api/inventory?storeId=${t!.fromStoreId}`)).json(),
+    queryFn: async () => fetchAllPages<any>(`/api/inventory?storeId=${t!.fromStoreId}`),
     enabled: fulfilOpen && !!t,
   });
 

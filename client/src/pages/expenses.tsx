@@ -202,9 +202,7 @@ export default function ExpensesPage() {
         const responses = await Promise.all(
           stores.map(async (s) => {
             try {
-              const res = await fetch(`/api/inventory?storeId=${s.id}`);
-              if (!res.ok) return [];
-              const list = await res.json() as Inventory[];
+              const list = await fetchAllPages<Inventory>(`/api/inventory?storeId=${s.id}`);
               return list.map(item => ({ ...item, storeName: s.name }));
             } catch {
               return [];
@@ -213,8 +211,7 @@ export default function ExpensesPage() {
         );
         return responses.flat();
       }
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<any>(`/api/inventory?storeId=${currentStore!.id}`);
     },
     enabled: currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id,
     staleTime: STALE_TIMES.reference,

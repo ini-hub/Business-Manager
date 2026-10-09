@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { parsePage, paginated } from "../lib/pagination";
 import { BaseController } from "./BaseController";
 import { storage } from "../storage";
 import { isAuthenticated } from "../auth";
@@ -17,44 +18,23 @@ export class InventoryController extends BaseController {
         return this.badRequest(res, "Please select a store first.");
       }
 
-      const page = parseInt(req.query.page as string) || 0;
-      const limit = parseInt(req.query.limit as string) || 0;
-      const search = req.query.search as string | undefined;
+      // One page at a time (page 1 at the default size when none is asked for); screens that need the whole
+      // list walk the pages (client/src/lib/paginated.ts).
+      const pageReq = parsePage(req.query);
+      const search = (req.query.search as string | undefined) || undefined;
 
       if (storeId === "all") {
         const stores = await this.getUserStores(req);
-        if (stores.length === 0) return this.ok(res, page > 0 && limit > 0 ? { items: [], total: 0, pages: 0 } : []);
-
-        if (page > 0 && limit > 0) {
-          // Single paginated DB query across all stores — no full-table load
-          const storeIds = stores.map(s => s.id);
-          const result = await storage.getInventoryForStores(storeIds, { page, limit, search });
-          return this.ok(res, {
-            items: result.data,
-            total: result.pagination.total,
-            pages: result.pagination.totalPages,
-          });
-        }
-
-        // Non-paginated: still fetch per store but include store name
-        const responses = await Promise.all(
-          stores.map(async (s) => {
-            const list = await storage.getInventory(s.id);
-            return list.map(item => ({ ...item, storeName: s.name }));
-          })
-        );
-        return this.ok(res, responses.flat());
+        if (stores.length === 0) return this.ok(res, paginated([], 0, pageReq));
+        const names = new Map(stores.map((s) => [s.id, s.name]));
+        const result = await storage.getInventoryForStores(stores.map((s) => s.id), { page: pageReq.page, limit: pageReq.limit, search });
+        const data = result.data.map((item) => ({ ...item, storeName: names.get(item.storeId) }));
+        return this.ok(res, paginated(data, result.pagination.total, pageReq));
       }
 
       if (!(await this.checkStoreAccess(storeId, req, res))) return res;
-
-      if (page > 0 && limit > 0) {
-        const result = await storage.getInventoryPaginated(storeId, { page, limit, search });
-        return this.ok(res, result);
-      }
-
-      const items = await storage.getInventory(storeId);
-      return this.ok(res, items);
+      const result = await storage.getInventoryPaginated(storeId, { page: pageReq.page, limit: pageReq.limit, search });
+      return this.ok(res, paginated(result.data, result.pagination.total, pageReq));
     } catch (error) {
       return this.error(res, "We couldn't load your inventory. Please try again.");
     }

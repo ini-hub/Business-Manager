@@ -50,8 +50,7 @@ export default function QuoteFormPage() {
   const { data: inventoryItems = [], isLoading: isLoadingInventory } = useQuery<Inventory[]>({
     queryKey: ["/api/inventory", currentStore?.id],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<any>(`/api/inventory?storeId=${currentStore!.id}`);
     },
     enabled: !!currentStore?.id,
   });

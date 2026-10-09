@@ -225,7 +225,7 @@ interface IStorage {
 
   // Products
   getProducts(storeId: string): Promise<any[]>;
-  getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>>;
+  getProductsPaginated(storeIds: string | string[], options: PaginationOptions): Promise<PaginatedResult<any>>;
   getTopSellingProductIds(storeId: string, days: number, limit: number): Promise<string[]>;
   getProduct(id: string): Promise<any>;
   getProductByName(storeId: string, name: string): Promise<Product | undefined>;
@@ -904,8 +904,8 @@ class DatabaseStorage implements IStorage {
     return this.productRepo.getProducts(storeId);
   }
 
-  async getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>> {
-    return this.productRepo.getProductsPaginated(storeId, options);
+  async getProductsPaginated(storeIds: string | string[], options: PaginationOptions): Promise<PaginatedResult<any>> {
+    return this.productRepo.getProductsPaginated(storeIds, options);
   }
 
   async getTopSellingProductIds(storeId: string, days: number, limit: number): Promise<string[]> {

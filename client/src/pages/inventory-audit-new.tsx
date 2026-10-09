@@ -1,3 +1,4 @@
+import { fetchAllPages } from "@/lib/paginated";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -46,8 +47,7 @@ export default function InventoryAuditNewPage() {
   const { data: inventoryList = [] } = useQuery<any[]>({
     queryKey: ["/api/inventory", currentStore?.id],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/inventory?storeId=${currentStore!.id}`);
-      return res.json();
+      return fetchAllPages<any>(`/api/inventory?storeId=${currentStore!.id}`);
     },
     enabled: !!currentStore?.id,
   });

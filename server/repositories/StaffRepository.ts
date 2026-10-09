@@ -183,7 +183,7 @@ export class StaffRepository {
     const data = await db.select()
       .from(staff)
       .where(and(...conditions))
-      .orderBy(asc(staff.staffNumber))
+      .orderBy(asc(staff.staffNumber), asc(staff.id))
       .limit(limit)
       .offset(offset);
 

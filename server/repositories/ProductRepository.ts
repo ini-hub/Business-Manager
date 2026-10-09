@@ -65,11 +65,14 @@ export class ProductRepository extends BaseRepository<typeof products> {
     return this.annotateSalesFlags(rows);
   }
 
-  async getProductsPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<any>> {
+  /** One page of products with their variants, for one store or several (name order, id breaks ties). */
+  async getProductsPaginated(storeIds: string | string[], options: PaginationOptions): Promise<PaginatedResult<any>> {
     const { page, limit, search } = options;
     const offset = (page - 1) * limit;
+    const ids = Array.isArray(storeIds) ? storeIds : [storeIds];
+    if (ids.length === 0) return { data: [], pagination: { total: 0, page, limit, totalPages: 0, hasMore: false } };
 
-    const conditions = [eq(products.storeId, storeId), eq(products.isDeleted, false)];
+    const conditions = [ids.length === 1 ? eq(products.storeId, ids[0]) : inArray(products.storeId, ids), eq(products.isDeleted, false)];
     if (search) {
       conditions.push(
         or(
@@ -92,7 +95,7 @@ export class ProductRepository extends BaseRepository<typeof products> {
           where: eq(inventory.isDeleted, false),
         },
       },
-      orderBy: asc(products.name),
+      orderBy: [asc(products.name), asc(products.id)],
       limit,
       offset,
     });
