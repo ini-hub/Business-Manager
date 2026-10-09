@@ -40,11 +40,12 @@ import { apiRequest } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 import { formatCurrency, formatCurrencyCompact } from "@/lib/currency-utils";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
+import { splitNormalizedPhone } from "@shared/phone-utils";
 import { getCustomerInitials, formatRelativeDate } from "@/lib/customer-detail-utils";
 import { cn } from "@/lib/utils";
 import type { Staff, StaffContractStatus, StaffInviteStatus } from "@shared/schema";
 
-type StaffDetail = Staff & { inviteStatus?: StaffInviteStatus; contractStatus?: StaffContractStatus };
+type StaffDetail = Staff & { inviteStatus?: StaffInviteStatus; contractStatus?: StaffContractStatus; workPhone?: string | null };
 type BreakdownEntry = { inventoryName: string; receiptNumber: string | null; transactionId: string | null; date: string; revenue: number; role: string; quantity?: number };
 type AttendanceRow = { id: string; date: string; status: string; isLate: boolean; lateMinutes: number | null; firstClockInAt: string | null; lastClockOutAt: string | null; notes: string | null };
 type PayrollPeriod = { id: string; periodType: string; startDate: string; endDate: string; status: string };
@@ -388,8 +389,19 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
           <span className="flex items-center gap-2">
             <Phone className="h-3.5 w-3.5" />
             {formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "")}
+            {staff.workPhone && <span className="text-xs">(personal)</span>}
           </span>
         )}
+        {staff.workPhone && (() => {
+          const split = splitNormalizedPhone(staff.workPhone);
+          return (
+            <span className="flex items-center gap-2">
+              <Phone className="h-3.5 w-3.5" />
+              {split ? formatPhoneDisplay(split.localNumber, split.countryCode) : staff.workPhone}
+              <span className="text-xs">(work)</span>
+            </span>
+          );
+        })()}
         {staff.email && (
           <span className="flex items-center gap-2 min-w-0">
             <Mail className="h-3.5 w-3.5 shrink-0" />

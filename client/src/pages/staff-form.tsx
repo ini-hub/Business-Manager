@@ -33,6 +33,8 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import { uploadContractFileToStaging } from "@/lib/contract-upload";
 import { useStore } from "@/lib/store-context";
 import { countryCodes, validatePhoneNumber } from "@/lib/phone-utils";
+import { PhoneInput } from "@/components/phone-input";
+import { splitNormalizedPhone, normalizePhoneForStorage } from "@shared/phone-utils";
 import { getCurrencyByCode } from "@/lib/currency-utils";
 import { z } from "zod";
 import { useEffect, useState } from "react";
@@ -45,6 +47,7 @@ const localStaffSchema = z.object({
   staffNumber: z.string().optional().default(""),
   countryCode: z.string().default("NG"),
   mobileNumber: z.string().min(1, "Mobile number is required"),
+  workPhone: z.string().optional().default(""),
   payPerMonth: z.coerce.number().min(0),
   signedContract: z.boolean().default(false),
   role: z.string().default("staff"),
@@ -263,7 +266,7 @@ export default function StaffFormPage() {
     resolver: zodResolver(localStaffSchema),
     defaultValues: {
       storeId: (currentStore?.id === "all" ? "" : currentStore?.id) || "",
-      firstName: "", lastName: "", email: "", staffNumber: "", countryCode: "NG", mobileNumber: "",
+      firstName: "", lastName: "", email: "", staffNumber: "", countryCode: "NG", mobileNumber: "", workPhone: "",
       payPerMonth: 0, signedContract: false, role: "staff", paymentMethod: "hybrid",
       overridePaymentMethod: false, overrideCommission: false,
       commissionTypeOverride: "percentage", commissionFixedAmountOverride: 0,
@@ -292,6 +295,7 @@ export default function StaffFormPage() {
         staffNumber: staffMember.staffNumber,
         countryCode,
         mobileNumber: staffMember.mobileNumber,
+        workPhone: (staffMember as { workPhone?: string | null }).workPhone || "",
         payPerMonth: staffMember.payPerMonth,
         signedContract: staffMember.signedContract,
         role: staffMember.role || "staff",
@@ -368,12 +372,15 @@ export default function StaffFormPage() {
   const [isPreparingContract, setIsPreparingContract] = useState(false);
 
   const onSubmit = async (data: any) => {
-    const validation = validatePhoneNumber(data.mobileNumber, data.countryCode || "NG");
-    if (!validation.valid) { form.setError("mobileNumber", { message: validation.error }); return; }
+    if (!staffId) {
+      const validation = validatePhoneNumber(data.mobileNumber, data.countryCode || "NG");
+      if (!validation.valid) { form.setError("mobileNumber", { message: validation.error }); return; }
+    }
     const payload: any = {
       ...data,
       commissionRateOverride: data.commissionRateOverride != null ? data.commissionRateOverride / 100 : null,
     };
+    if (staffId) { delete payload.mobileNumber; delete payload.countryCode; }
 
     // The Contract section only offers this inline path on the create form
     // (staffId undefined) - once saved, attaching/replacing goes through its
@@ -570,7 +577,7 @@ export default function StaffFormPage() {
                   <FormField control={form.control} name="countryCode" render={({ field }) => (
                     <FormItem className="sm:col-span-2">
                       <FormLabel>Country</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || "NG"}>
+                      <Select disabled={!!staffId} onValueChange={field.onChange} value={field.value || "NG"}>
                         <FormControl><SelectTrigger className="h-11"><SelectValue /></SelectTrigger></FormControl>
                         <SelectContent className="max-h-[280px]">
                           {countryCodes.map((c) => (
@@ -584,11 +591,30 @@ export default function StaffFormPage() {
                   <FormField control={form.control} name="mobileNumber" render={({ field }) => (
                     <FormItem className="sm:col-span-3">
                       <FormLabel>Mobile Number <span className="text-destructive">*</span></FormLabel>
-                      <FormControl><Input placeholder="8012345678" className="h-11" {...field} /></FormControl>
+                      <FormControl><Input placeholder="8012345678" className="h-11" disabled={!!staffId} {...field} /></FormControl>
+                      {staffId && <p className="text-xs text-muted-foreground">Set by the staff member in their profile. Their work number is managed in the HR profile.</p>}
                       <FormMessage />
                     </FormItem>
                   )} />
                 </div>
+
+                <FormField control={form.control} name="workPhone" render={({ field }) => {
+                  const split = splitNormalizedPhone(field.value ?? "") ?? { countryCode: "+234", localNumber: field.value ?? "" };
+                  return (
+                    <FormItem>
+                      <FormLabel>Work Phone <span className="text-xs text-muted-foreground font-normal">(optional, same as the HR profile's Work Phone)</span></FormLabel>
+                      <PhoneInput
+                        countryCode={split.countryCode}
+                        phoneNumber={split.localNumber}
+                        onCountryCodeChange={(code) => field.onChange(split.localNumber ? normalizePhoneForStorage(split.localNumber, code) : "")}
+                        onPhoneNumberChange={(num) => field.onChange(num ? normalizePhoneForStorage(num, split.countryCode) : "")}
+                        countryCodeLabel=""
+                        phoneNumberLabel=""
+                      />
+                      <FormMessage />
+                    </FormItem>
+                  );
+                }} />
               </CardContent>
             </Card>
 

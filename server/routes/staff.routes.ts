@@ -25,8 +25,26 @@ import { isUniqueViolation, getViolatedConstraint } from "../db-errors";
 import { auditLogger } from "../audit";
 import { parsePage, paginated } from "../lib/pagination";
 import { bulkUploadService } from "../services/BulkUploadService";
+import { hrPersonalProfileService } from "../services/HrPersonalProfileService";
+import { validateHrFieldValue } from "@shared/hr-field-validation";
 import { getUserId, getAuditContext, formatZodErrors, verifyStoreAccess, verifyRecordStoreAccess, broadcastChange } from './helpers';
 import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
+
+// The work number is the HR profile's "work_phone" field - the staff form
+// edits that same stored value (no copy to sync). Canonical form is
+// dial-code+digits, like every HR phone field.
+function parseWorkPhone(raw: unknown): { ok: true; value: string | null | undefined } | { ok: false; error: string } {
+  if (raw === undefined) return { ok: true, value: undefined };
+  if (raw === null || raw === "") return { ok: true, value: null };
+  const result = validateHrFieldValue("phone", raw as string, null, "Work phone");
+  return result.ok ? { ok: true, value: String(raw) } : { ok: false, error: result.error };
+}
+
+async function saveWorkPhone(staffId: string, storeId: string, value: string | null, userId: string | undefined) {
+  const businessId = (await storage.getStore(storeId))?.businessId;
+  if (!businessId) return;
+  await hrPersonalProfileService.setValuesByFieldKey({ staffId, businessId, section: "personal", updatedByUserId: userId, values: { work_phone: value } });
+}
 
 // The invite form is a deliberate enumeration-oracle blind spot (see the
 // "Collapsed deliberately" comment below): a manager must never learn that
@@ -95,6 +113,14 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       const redactUserId = (list: any[]) => {
         list.forEach(s => { delete s.userId; });
       };
+      // Work number lives in the HR profile ("work_phone"), separate from the
+      // primary number on the staff row.
+      const attachWorkPhone = async (list: any[]) => {
+        const phones = businessId
+          ? await hrPersonalProfileService.getWorkPhones(list.map(s => s.id), businessId)
+          : new Map<string, string>();
+        list.forEach(s => { s.workPhone = phones.get(s.id) ?? null; });
+      };
 
       const redactWages = (list: any[]) => {
         list.forEach(s => {
@@ -119,7 +145,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       if (req.user?.role === "staff") {
         redactWages(result.data);
       }
-      await Promise.all([attachInviteStatus(result.data), attachContractStatus(result.data)]);
+      await Promise.all([attachInviteStatus(result.data), attachContractStatus(result.data), attachWorkPhone(result.data)]);
       redactUserId(result.data);
       res.json(paginated(result.data, result.pagination.total, pageReq));
     } catch (error) {
@@ -158,6 +184,10 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       (staffMember as any).contractStatus = singleBusinessId
         ? await staffContractService.computeContractStatus(staffMember, singleBusinessId)
         : "none";
+
+      (staffMember as any).workPhone = singleBusinessId
+        ? (await hrPersonalProfileService.getWorkPhones([staffMember.id], singleBusinessId)).get(staffMember.id) ?? null
+        : null;
 
       delete (staffMember as any).userId;
       res.json(staffMember);
@@ -245,6 +275,9 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         }
       }
 
+      const workPhone = parseWorkPhone(req.body.workPhone);
+      if (!workPhone.ok) return res.status(400).json({ error: workPhone.error });
+
       const staffMember = await storage.createStaff(data);
       const ctx = await getAuditContext(req, { storeId: data.storeId });
       auditLogger.logEvent(ctx, "CREATE", "staff", staffMember.id, "success", { newValues: staffMember });
@@ -257,9 +290,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         firstName: staffMember.firstName ?? undefined,
         lastName: staffMember.lastName ?? undefined,
         email: staffMember.email,
-        mobileNumber: staffMember.mobileNumber,
-        countryCode: staffMember.countryCode,
       }, getUserId(req));
+      if (workPhone.value) await saveWorkPhone(staffMember.id, staffMember.storeId, workPhone.value, getUserId(req));
 
       // Invitation + activation. One call into StaffInviteService, which owns
       // the new-user / existing-user branching and is the same code path used
@@ -443,6 +475,22 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       delete sanitizedBody.name;
       const data = insertStaffSchema.partial().parse(sanitizedBody);
 
+      // The primary number is set by the staff member in their own profile
+      // (HrPersonalProfileService); a manager can only enter it at creation.
+      // An unchanged value is tolerated so a stale client echoing the whole
+      // record back doesn't fail.
+      const primaryChanged =
+        (data.mobileNumber !== undefined && data.mobileNumber !== staffMember.mobileNumber) ||
+        (data.countryCode !== undefined && data.countryCode !== staffMember.countryCode);
+      if (primaryChanged) {
+        return res.status(400).json({ error: "A staff member's primary mobile number can only be changed by the staff member in their own profile." });
+      }
+      delete data.mobileNumber;
+      delete data.countryCode;
+
+      const workPhone = parseWorkPhone(req.body.workPhone);
+      if (!workPhone.ok) return res.status(400).json({ error: workPhone.error });
+
       // The owner's access role is fixed: it is set once at store creation and
       // cannot be edited here, and "owner" cannot be handed to anyone else.
       if (staffMember.role === "owner") {
@@ -604,16 +652,16 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         if (nameMember?.status === "pending") await syncStaffNameToLinkedUser(staffMember.id, staffMember.userId, updatedStaffMember.name);
       }
 
+      if (workPhone.value !== undefined) await saveWorkPhone(staffMember.id, staffMember.storeId, workPhone.value, getUserId(req));
+
       // Keep the HR "complete profile" personal fields (first_name/last_name/
       // work_email/mobile_number) in step with whatever a manager just typed
       // here - see IdentitySync.syncStaffToHrPersonalFields.
-      if (data.firstName !== undefined || data.lastName !== undefined || data.email !== undefined || data.mobileNumber !== undefined) {
+      if (data.firstName !== undefined || data.lastName !== undefined || data.email !== undefined) {
         await syncStaffToHrPersonalFields(staffMember.id, {
           firstName: data.firstName !== undefined ? updatedStaffMember.firstName ?? undefined : undefined,
           lastName: data.lastName !== undefined ? updatedStaffMember.lastName ?? undefined : undefined,
           email: data.email !== undefined ? updatedStaffMember.email : undefined,
-          mobileNumber: data.mobileNumber !== undefined ? updatedStaffMember.mobileNumber : undefined,
-          countryCode: data.mobileNumber !== undefined ? updatedStaffMember.countryCode : undefined,
         }, getUserId(req));
       }
 

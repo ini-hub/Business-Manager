@@ -13,6 +13,8 @@ import {
 } from "@shared/schema";
 import { validateHrFieldValue, isFieldValueEmpty, type HrFieldValueInput } from "@shared/hr-field-validation";
 import type { Staff } from "@shared/schema";
+import { normalizePhoneForStorage, splitNormalizedPhone } from "@shared/phone-utils";
+import { isUniqueViolation } from "../db-errors";
 
 // Fields whose value is derived from real staff data rather than typed in -
 // "employee_id" mirrors staff.staffNumber (StaffRepository's store-scoped
@@ -25,13 +27,25 @@ const SYSTEM_MANAGED_FIELD_KEYS: Record<string, (staff: Staff) => string | null>
   employee_id: (staff) => staff.staffNumber,
 };
 
+// "mobile_number" is the staff member's PRIMARY number and has exactly one
+// home: staff.mobileNumber/countryCode (what the staff list, invites, login
+// matching and the store-unique index all use). The HR field is a view onto
+// it - read from staff, written through to staff - never a second stored copy
+// that a mirror has to keep in step. (It used to be mirrored, and the mirror
+// failed silently on a unique clash / unparseable value / bulk-upload row, so
+// the list and the profile drifted.) A separate number, "work_phone", is its
+// own ordinary HR field with no staff-side twin.
+const STAFF_BACKED_PHONE_KEY = "mobile_number";
+const staffPrimaryPhone = (staff: Staff): string | null =>
+  staff.mobileNumber ? normalizePhoneForStorage(staff.mobileNumber, staff.countryCode || "+234") : null;
+
 // The "personal" fields that duplicate data already collected (and
 // compulsory) at staff creation - unlike employee_id these stay freely
-// editable on the HR profile (a home address/mobile can legitimately change,
-// and "work_email" isn't necessarily the login email), so rather than
-// locking them read-only, IdentitySync.ts mirrors changes on either side
-// onto the other. See syncHrPersonalFieldsToStaff/syncStaffToHrPersonalFields.
-const STAFF_LINKED_FIELD_KEYS = ["first_name", "last_name", "work_email", "mobile_number"] as const;
+// editable on the HR profile ("work_email" isn't necessarily the login
+// email), so rather than locking them read-only, IdentitySync.ts mirrors
+// changes on either side onto the other. See
+// syncHrPersonalFieldsToStaff/syncStaffToHrPersonalFields.
+const STAFF_LINKED_FIELD_KEYS = ["first_name", "last_name", "work_email"] as const;
 
 /**
  * Owns the dynamic field builder's read/write path: fetching a business's
@@ -66,16 +80,34 @@ class HrPersonalProfileService {
       .where(and(eq(hrFieldValues.staffId, staffId), inArray(hrFieldValues.fieldDefinitionId, defIds)));
     const byDefId = new Map(values.map((v) => [v.fieldDefinitionId, v]));
 
-    const needsStaff = definitions.some((d) => d.fieldKey in SYSTEM_MANAGED_FIELD_KEYS);
+    const needsStaff = definitions.some((d) => d.fieldKey in SYSTEM_MANAGED_FIELD_KEYS || d.fieldKey === STAFF_BACKED_PHONE_KEY);
     const staff = needsStaff ? await storage.getStaff(staffId) : undefined;
 
     return definitions.map((def) => {
+      if (staff && def.fieldKey === STAFF_BACKED_PHONE_KEY) return { ...def, value: staffPrimaryPhone(staff) };
       const systemValue = staff && SYSTEM_MANAGED_FIELD_KEYS[def.fieldKey];
       return {
         ...def,
         value: systemValue ? systemValue(staff) : this.projectValue(def.fieldType, byDefId.get(def.id)),
       };
     });
+  }
+
+  /** staffId -> work phone (canonical dial-code string) for the staff list; one query for the whole page. */
+  async getWorkPhones(staffIds: string[], businessId: string): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (staffIds.length === 0) return out;
+    const rows = await db.select({ staffId: hrFieldValues.staffId, value: hrFieldValues.valueText })
+      .from(hrFieldValues)
+      .innerJoin(hrFieldDefinitions, eq(hrFieldValues.fieldDefinitionId, hrFieldDefinitions.id))
+      .where(and(
+        eq(hrFieldDefinitions.businessId, businessId),
+        eq(hrFieldDefinitions.fieldKey, "work_phone"),
+        eq(hrFieldDefinitions.isEnabled, true),
+        inArray(hrFieldValues.staffId, staffIds),
+      ));
+    for (const r of rows) if (r.value) out.set(r.staffId, r.value);
+    return out;
   }
 
   /** One transaction, one row per submitted field - upsert semantics via ON CONFLICT. */
@@ -120,9 +152,29 @@ class HrPersonalProfileService {
       }
     }
 
+    // Primary number: write straight to staff and fail the save loudly (e.g.
+    // the number is already another staff member's at this store) instead of
+    // storing a second copy that silently diverges.
+    const phoneEntry = submittedValues.find((e) => defById.get(e.fieldDefinitionId)!.fieldKey === STAFF_BACKED_PHONE_KEY);
+    if (phoneEntry) {
+      const split = typeof phoneEntry.value === "string" && phoneEntry.value ? splitNormalizedPhone(phoneEntry.value) : undefined;
+      if (!split || !split.localNumber) {
+        return { ok: false, error: "Mobile number is required and must include a country code.", field: phoneEntry.fieldDefinitionId };
+      }
+      try {
+        await storage.updateStaff(staffId, { mobileNumber: split.localNumber, countryCode: split.countryCode });
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return { ok: false, error: "This mobile number is already used by another staff member.", field: phoneEntry.fieldDefinitionId };
+        }
+        throw err;
+      }
+    }
+
     await db.transaction(async (tx) => {
       for (const entry of submittedValues) {
         const def = defById.get(entry.fieldDefinitionId)!;
+        if (def.fieldKey === STAFF_BACKED_PHONE_KEY) continue;
         const columns = this.buildColumns(def.fieldType, entry.value);
         await tx.insert(hrFieldValues).values({
           staffId,
@@ -150,7 +202,6 @@ class HrPersonalProfileService {
         firstName: (byKey.get("first_name") as string | null) ?? undefined,
         lastName: (byKey.get("last_name") as string | null) ?? undefined,
         email: (byKey.get("work_email") as string | null) ?? undefined,
-        mobileNumber: (byKey.get("mobile_number") as string | null) ?? undefined,
       });
     }
 

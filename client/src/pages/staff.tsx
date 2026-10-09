@@ -65,7 +65,16 @@ import { useStore } from "@/lib/store-context";
 // actually log in yet?", which signedContract never did. contractStatus is
 // the equivalent projection over the versioned staff_contracts table -
 // signedContract itself is deprecated and no longer kept in sync with it.
-type StaffRow = Staff & { inviteStatus?: StaffInviteStatus; contractStatus?: StaffContractStatus; storeName?: string };
+type StaffRow = Staff & { inviteStatus?: StaffInviteStatus; contractStatus?: StaffContractStatus; storeName?: string; workPhone?: string | null };
+
+// One number per row: the work number when set, else the primary number.
+function displayPhone(staff: StaffRow): string {
+  if (staff.workPhone) {
+    const split = splitNormalizedPhone(staff.workPhone);
+    return split ? formatPhoneDisplay(split.localNumber, split.countryCode) : staff.workPhone;
+  }
+  return formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234");
+}
 
 function InviteStatusBadge({ status }: { status?: StaffInviteStatus }) {
   if (status === "active") {
@@ -108,6 +117,7 @@ const StaffCardNameCell = ({ staff }: { staff: { name: string } }) => <span clas
 
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
+import { splitNormalizedPhone } from "@shared/phone-utils";
 import { fetchAllStaff } from "@/lib/staff-api";
 import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { exportReportToPDF } from "@/lib/export-utils";
@@ -329,12 +339,12 @@ export default function StaffPage() {
       },
       {
         key: "mobileNumber",
-        header: "Mobile",
+        header: "Phone",
         priority: 2 as const,
         render: (staff: StaffRow) => (
           <div className="flex items-center gap-2">
             <Phone className="h-3 w-3 text-muted-foreground" />
-            <span>{formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234")}</span>
+            <span>{displayPhone(staff)}</span>
           </div>
         ),
       },
@@ -458,12 +468,12 @@ export default function StaffPage() {
     },
     {
       key: "mobileNumber",
-      header: "Mobile",
+      header: "Phone",
       priority: 1 as const,
       render: (staff: StaffRow) => (
         <div className="flex items-center gap-2">
           <Phone className="h-3 w-3 text-muted-foreground" />
-          <span>{formatPhoneDisplay(staff.mobileNumber, staff.countryCode || "+234")}</span>
+          <span>{displayPhone(staff)}</span>
         </div>
       ),
     },

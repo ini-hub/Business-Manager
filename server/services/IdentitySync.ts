@@ -1,5 +1,5 @@
 import { storage } from "../storage";
-import { splitNormalizedPhone, normalizePhoneForStorage } from "@shared/phone-utils";
+import { splitNormalizedPhone } from "@shared/phone-utils";
 import { splitFullName } from "@shared/name-utils";
 import { hrPersonalProfileService } from "./HrPersonalProfileService";
 
@@ -146,23 +146,14 @@ export async function syncUserIdentityToLinkedStaff(
  */
 export async function syncHrPersonalFieldsToStaff(
   staffId: string,
-  fields: { firstName?: string; lastName?: string; email?: string; mobileNumber?: string },
+  fields: { firstName?: string; lastName?: string; email?: string },
 ): Promise<void> {
-  if (!fields.firstName && !fields.lastName && !fields.email && !fields.mobileNumber) return;
+  if (!fields.firstName && !fields.lastName && !fields.email) return;
 
-  const staffFields: { firstName?: string; lastName?: string; email?: string; mobileNumber?: string; countryCode?: string } = {};
+  const staffFields: { firstName?: string; lastName?: string; email?: string } = {};
   if (fields.firstName) staffFields.firstName = fields.firstName;
   if (fields.lastName) staffFields.lastName = fields.lastName;
   if (fields.email) staffFields.email = fields.email;
-  if (fields.mobileNumber) {
-    const split = splitNormalizedPhone(fields.mobileNumber);
-    if (split) {
-      staffFields.mobileNumber = split.localNumber;
-      staffFields.countryCode = split.countryCode;
-    } else {
-      console.error(`[IdentitySync] could not split HR profile mobile number "${fields.mobileNumber}" for staff ${staffId} - skipping mobile sync.`);
-    }
-  }
   if (Object.keys(staffFields).length === 0) return;
 
   try {
@@ -185,10 +176,10 @@ export async function syncHrPersonalFieldsToStaff(
  */
 export async function syncStaffToHrPersonalFields(
   staffId: string,
-  fields: { firstName?: string; lastName?: string; email?: string; mobileNumber?: string; countryCode?: string },
+  fields: { firstName?: string; lastName?: string; email?: string },
   updatedByUserId: string | undefined,
 ): Promise<void> {
-  if (fields.firstName === undefined && fields.lastName === undefined && fields.email === undefined && fields.mobileNumber === undefined) return;
+  if (fields.firstName === undefined && fields.lastName === undefined && fields.email === undefined) return;
 
   try {
     const businessId = await hrPersonalProfileService.getBusinessIdForStaff(staffId);
@@ -198,9 +189,6 @@ export async function syncStaffToHrPersonalFields(
     if (fields.firstName !== undefined) values.first_name = fields.firstName || null;
     if (fields.lastName !== undefined) values.last_name = fields.lastName || null;
     if (fields.email !== undefined) values.work_email = fields.email || null;
-    if (fields.mobileNumber !== undefined && fields.countryCode !== undefined) {
-      values.mobile_number = fields.mobileNumber ? normalizePhoneForStorage(fields.mobileNumber, fields.countryCode) : null;
-    }
     if (Object.keys(values).length === 0) return;
 
     await hrPersonalProfileService.setValuesByFieldKey({ staffId, businessId, section: "personal", updatedByUserId, values });
