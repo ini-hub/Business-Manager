@@ -196,7 +196,7 @@ function PageLoader() {
 }
 
 function OnboardingRoute() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -210,6 +210,8 @@ function OnboardingRoute() {
   }
 
   if (!isAuthenticated) return null;
+  // Non-owners can't create a store; send them to the app instead of a form that 403s.
+  if (user?.role !== "owner") return <Redirect to="/" />;
   return <OnboardingWizard />;
 }
 
@@ -436,6 +438,11 @@ function AuthenticatedLayout() {
     enabled: !!user,
   });
 
+  // Only the owner ever sees the wizard: staff and managers can't create
+  // stores (POST /api/stores and /skip-setup are owner-only), and /api/stores
+  // returns staff just their assigned store(s), which needn't include the
+  // main one - so "no main store in the list" says nothing about a staff
+  // member's setup.
   // Onboarding is "done" once the business has a designated main store, not
   // merely any store - keeps this gate in sync with server-assigned isMain
   // (see server/routes/business.routes.ts createDefaultStore / POST /api/stores).
@@ -457,10 +464,10 @@ function AuthenticatedLayout() {
   // guard on needsTrialConsent so a brand-new owner sees the trial notice
   // before, not racing, the redirect into the onboarding wizard.
   useEffect(() => {
-    if (!storesLoading && !businessLoading && !hasMainStore && !isOrgLocked(business) && !needsTrialConsent && location !== "/onboarding") {
+    if (user?.role === "owner" && !storesLoading && !businessLoading && !hasMainStore && !isOrgLocked(business) && !needsTrialConsent && location !== "/onboarding") {
       setLocation("/onboarding");
     }
-  }, [storesLoading, businessLoading, hasMainStore, business, needsTrialConsent, location, setLocation]);
+  }, [user?.role, storesLoading, businessLoading, hasMainStore, business, needsTrialConsent, location, setLocation]);
 
   // Global power-user navigation keyboard shortcuts (Alt/Option modifier)
   useEffect(() => {
