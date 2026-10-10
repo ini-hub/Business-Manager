@@ -125,7 +125,7 @@ export function AppSidebar() {
     .filter((section) => section.items.length > 0);
 
   // Reopen the nav where it was left; wait for the sections so the offset isn't clamped.
-  const navScroll = useScrollMemory("app-sidebar", sections.length > 0);
+  const navScrollRef = useScrollMemory("app-sidebar", sections.length > 0);
 
   const { data: payrollPeriods } = useQuery<PayrollPeriod[]>({
     queryKey: ["/api/payroll/periods", currentStore?.id],
@@ -168,7 +168,7 @@ export function AppSidebar() {
           </div>
         </div>
       </SidebarHeader>
-      <SidebarContent ref={navScroll.ref} onScroll={navScroll.onScroll} className="px-3 py-4">
+      <SidebarContent ref={navScrollRef} className="px-3 py-4">
         {sections.map((section, i) => {
           const href = SECTION_LINKS[section.id];
           return (

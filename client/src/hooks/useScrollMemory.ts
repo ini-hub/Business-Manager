@@ -1,44 +1,55 @@
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useState } from "react";
 
-// Survives the scroll container unmounting (e.g. the mobile drawer closing).
-const offsets = new Map<string, number>();
-
-function readOffset(key: string): number {
-  const inMemory = offsets.get(key);
-  if (inMemory !== undefined) return inMemory;
+function read(key: string): number {
   try {
-    const stored = Number(sessionStorage.getItem(`scroll:${key}`));
-    return Number.isFinite(stored) ? stored : 0;
+    return Number(sessionStorage.getItem(`scroll:${key}`)) || 0;
   } catch {
     return 0;
   }
 }
 
-function writeOffset(key: string, value: number) {
-  offsets.set(key, value);
+function write(key: string, value: number) {
   try {
     sessionStorage.setItem(`scroll:${key}`, String(value));
-  } catch {
-    // storage unavailable; the in-memory copy still works
-  }
+  } catch {}
 }
 
 /**
- * Remembers a scroll container's offset under `key` and restores it on mount.
- * Pass `ready=false` while the content is still loading so the offset is
- * applied once the content has its full height.
+ * Remembers a scroll container's offset under `key` (sessionStorage) and restores it whenever the
+ * element mounts, so it survives navigation, refresh and a drawer that unmounts when closed.
+ *
+ * Returns a callback ref: pass it as the container's `ref`. `ready=false` holds off until the content
+ * is loaded. Same approach as the admin layout's per-route scroll: retry until the content is tall
+ * enough, and don't record the offset while restoring (a clamped 0 would overwrite it).
  */
 export function useScrollMemory(key: string, ready = true) {
-  const ref = useRef<HTMLDivElement>(null);
+  const [el, setEl] = useState<HTMLElement | null>(null);
 
   useLayoutEffect(() => {
-    if (ready && ref.current) ref.current.scrollTop = readOffset(key);
-  }, [key, ready]);
+    if (!el || !ready) return;
+    const target = read(key);
+    let restoring = target > 0;
+    let attempts = 0;
+    let frame = 0;
+    const restore = () => {
+      if (!restoring) return;
+      el.scrollTop = target;
+      if (Math.abs(el.scrollTop - target) <= 1 || ++attempts > 40) {
+        restoring = false;
+        return;
+      }
+      frame = requestAnimationFrame(restore);
+    };
+    restore();
+    const onScroll = () => {
+      if (!restoring) write(key, el.scrollTop);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      el.removeEventListener("scroll", onScroll);
+    };
+  }, [el, key, ready]);
 
-  const onScroll = useCallback(
-    (e: React.UIEvent<HTMLDivElement>) => writeOffset(key, e.currentTarget.scrollTop),
-    [key],
-  );
-
-  return { ref, onScroll };
+  return setEl;
 }
