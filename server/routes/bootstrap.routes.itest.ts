@@ -10,7 +10,8 @@ import { generateToken } from "../auth";
 import { closePool } from "../test-support/integration-db";
 import { partnerTestKit } from "../test-support/partner-fixtures";
 import { runWithRequestStats } from "../lib/queryCounter";
-import { loadEntitlementsPayload } from "../lib/shellData";
+import { loadEntitlementsPayload, loadAuthUser, loadActiveBusiness, loadVisibleStores } from "../lib/shellData";
+import { runWithRequestMemo } from "../lib/requestMemo";
 
 /**
  * GET /api/bootstrap must be exactly the shell endpoints it replaces, for every role, and the shell loaders
@@ -105,5 +106,19 @@ describe("shell statement budget", () => {
     // Was ~50 before the shell was deduplicated; 33 measured here. Under vitest the catalog/flag TTL caches
     // are disabled (server/lib/ttlCache.ts), so production issues fewer. Raise only with a reason.
     expect(stats.queries).toBeLessThanOrEqual(36);
+  }, 120_000);
+
+  it("loads the whole bootstrap shell in one request within budget, sharing the business row", async () => {
+    const { orgId, ownerId } = await shop();
+    const req: any = { user: { id: ownerId, userId: ownerId, role: "owner", businessId: orgId, organisationId: orgId } };
+    const stats = { queries: 0 };
+    await runWithRequestStats(stats, () =>
+      runWithRequestMemo(async () => {
+        await Promise.all([loadAuthUser(req), loadActiveBusiness(req), loadVisibleStores(req), loadEntitlementsPayload(req.user)]);
+      }),
+    );
+    console.log(`bootstrap shell statements: ${stats.queries}`);
+    // Entitlements alone is ~33 (caches off); the rest of the shell must stay small on top of it.
+    expect(stats.queries).toBeLessThanOrEqual(50);
   }, 120_000);
 });

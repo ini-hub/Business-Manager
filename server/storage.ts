@@ -67,6 +67,7 @@ import {
   type PaymentLegInput,
 } from "@shared/schema";
 import { db, type DbExecutor } from "./db";
+import { memoForRequest, clearRequestMemo } from "./lib/requestMemo";
 import { eq, sql, desc, and, inArray, gte, lte } from "drizzle-orm";
 import { payrollPostingService } from "./services/PayrollPostingService";
 import { CommissionSplitCalculator as OOPCommissionSplitCalculator } from "./services/CommissionService";
@@ -681,7 +682,8 @@ class DatabaseStorage implements IStorage {
   }
 
   async getBusinessById(id: string): Promise<Business | undefined> {
-    return this.businessRepo.getBusinessById(id);
+    // Repeated by several layers of one GET request (auth user, business payload, mask policy).
+    return memoForRequest(`business:${id}`, () => this.businessRepo.getBusinessById(id));
   }
 
   async getBusinessesByIds(ids: string[]): Promise<Business[]> {
@@ -694,7 +696,10 @@ class DatabaseStorage implements IStorage {
   }
 
   async updateBusiness(id: string, businessData: Partial<InsertBusiness>): Promise<Business | undefined> {
-    return this.businessRepo.updateBusiness(id, businessData);
+    clearRequestMemo(`business:${id}`);
+    const updated = await this.businessRepo.updateBusiness(id, businessData);
+    clearRequestMemo(`business:${id}`);
+    return updated;
   }
 
   // Stores

@@ -5,6 +5,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { recordRequest, startHealthMetricsFlush } from "./lib/healthMetrics";
 import { runWithRequestStats, type RequestStats } from "./lib/queryCounter";
+import { runWithRequestMemo } from "./lib/requestMemo";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import helmet from "helmet";
@@ -114,7 +115,9 @@ app.use((req, res, next) => {
     }
   });
 
-  runWithRequestStats(stats, next);
+  // Read-only requests share repeated reads (see lib/requestMemo.ts); writers never see a memoised value.
+  const readOnly = req.method === "GET" || req.method === "HEAD";
+  runWithRequestStats(stats, () => (readOnly ? runWithRequestMemo(next) : next()));
 });
 
 (async () => {
