@@ -25,7 +25,7 @@ for (const f of files) {
  * (reports, charts, dashboard, search). Keep short: a new entry here is a decision not to make it switchable.
  */
 const PLATFORM_DOMAINS: ReadonlySet<string> = new Set([
-  "auth", "user", "entitlements", "billing", "subscription", "webhooks", "health", "csrf-token", "public", "support", "legal", "profile", "upload", "uploads",
+  "auth", "user", "entitlements", "bootstrap", "billing", "subscription", "webhooks", "health", "csrf-token", "public", "support", "legal", "profile", "upload", "uploads",
   "admin", "debug", "verify", "geocode", "export-branding", "announcements", "permission-modules", "roles", "reports", "charts", "dashboard", "search",
 ]);
 

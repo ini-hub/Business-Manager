@@ -175,17 +175,17 @@ export class StaffRepository {
       );
     }
 
-    const [countResult] = await db.select({ count: count() })
-      .from(staff)
-      .where(and(...conditions));
+    // Independent reads: issued together so they cost one round trip, not two.
+    const [[countResult], data] = await Promise.all([
+      db.select({ count: count() }).from(staff).where(and(...conditions)),
+      db.select()
+        .from(staff)
+        .where(and(...conditions))
+        .orderBy(asc(staff.staffNumber), asc(staff.id))
+        .limit(limit)
+        .offset(offset),
+    ]);
     const total = countResult.count;
-
-    const data = await db.select()
-      .from(staff)
-      .where(and(...conditions))
-      .orderBy(asc(staff.staffNumber), asc(staff.id))
-      .limit(limit)
-      .offset(offset);
 
     const totalPages = Math.ceil(total / limit);
 
