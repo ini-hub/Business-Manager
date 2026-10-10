@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/sidebar";
 import { IconButton } from "@/components/icon-button";
 import { useAuth } from "@/hooks/useAuth";
+import { useScrollMemory } from "@/hooks/useScrollMemory";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useStore } from "@/lib/store-context";
 import { OrgSwitcher } from "@/components/org-switcher";
@@ -123,6 +124,9 @@ export function AppSidebar() {
     .map((section) => ({ ...section, items: section.items.filter(isVisible) }))
     .filter((section) => section.items.length > 0);
 
+  // Reopen the nav where it was left; wait for the sections so the offset isn't clamped.
+  const navScroll = useScrollMemory("app-sidebar", sections.length > 0);
+
   const { data: payrollPeriods } = useQuery<PayrollPeriod[]>({
     queryKey: ["/api/payroll/periods", currentStore?.id],
     queryFn: async () => {
@@ -164,7 +168,7 @@ export function AppSidebar() {
           </div>
         </div>
       </SidebarHeader>
-      <SidebarContent className="px-3 py-4">
+      <SidebarContent ref={navScroll.ref} onScroll={navScroll.onScroll} className="px-3 py-4">
         {sections.map((section, i) => {
           const href = SECTION_LINKS[section.id];
           return (
