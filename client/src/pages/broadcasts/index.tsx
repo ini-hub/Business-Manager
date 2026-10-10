@@ -92,6 +92,14 @@ export default function BroadcastsPage() {
     onError: (err: Error) => toast({ title: "Couldn't send broadcast", description: err.message, variant: "destructive" }),
   });
 
+  const phoneCustomers = customers.filter((c) => c.mobileNumber);
+  const allSelected = phoneCustomers.length > 0 && phoneCustomers.every((c) => selectedCustomerIds.has(c.id));
+  const someSelected = selectedCustomerIds.size > 0;
+
+  const toggleAll = () => {
+    setSelectedCustomerIds(allSelected ? new Set() : new Set(phoneCustomers.map((c) => c.id)));
+  };
+
   const toggleCustomer = (id: string) => {
     setSelectedCustomerIds((prev) => {
       const next = new Set(prev);
@@ -153,17 +161,26 @@ export default function BroadcastsPage() {
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label>Customers ({selectedCustomerIds.size} selected)</Label>
+              <Label>Customers ({selectedCustomerIds.size} of {phoneCustomers.length} selected)</Label>
+              {phoneCustomers.length > 0 && (
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                    onCheckedChange={toggleAll}
+                  />
+                  Select all
+                </label>
+              )}
             </div>
             <div className="max-h-64 overflow-y-auto border rounded-lg divide-y">
-              {customers.filter((c) => c.mobileNumber).map((c) => (
+              {phoneCustomers.map((c) => (
                 <label key={c.id} className="flex items-center gap-3 p-2 text-sm cursor-pointer hover:bg-muted/50">
                   <Checkbox checked={selectedCustomerIds.has(c.id)} onCheckedChange={() => toggleCustomer(c.id)} />
                   <span>{c.name}</span>
                   <span className="text-muted-foreground text-xs ml-auto">{c.mobileNumber}</span>
                 </label>
               ))}
-              {customers.filter((c) => c.mobileNumber).length === 0 && (
+              {phoneCustomers.length === 0 && (
                 <p className="p-3 text-sm text-muted-foreground">No customers with a phone number yet.</p>
               )}
             </div>
