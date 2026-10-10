@@ -9,6 +9,7 @@ import { runWithRequestMemo } from "./lib/requestMemo";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import helmet from "helmet";
+import compression from "compression";
 import { csrfMiddleware } from "./csrf";
 import { buildCspDirectives } from "./csp";
 import { startBookingReminderService } from "./services/BookingReminderService";
@@ -30,6 +31,9 @@ const isDev = process.env.NODE_ENV !== "production";
 app.use(helmet({
   contentSecurityPolicy: isDev ? false : { directives: buildCspDirectives() },
 }));
+// Gzip text responses (JSON, HTML, JS, CSS). The bootstrap payload and the staff/customer lists are
+// large relative to a slow mobile link; it skips anything already encoded and anything under 1 KB.
+app.use(compression({ threshold: 1024 }));
 const httpServer = createServer(app);
 
 declare module "http" {
