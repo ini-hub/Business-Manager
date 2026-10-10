@@ -78,7 +78,8 @@ import { getCurrencyByCode } from "@/lib/currency-utils";
 
 
 export default function CreditSalesPage() {
-  const { currentStore } = useStore();
+  const { currentStore, business } = useStore();
+  const figuresMasked = !!(business as any)?.viewerMask?.figures;
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -638,8 +639,8 @@ export default function CreditSalesPage() {
         metrics={[
           {
             title: "Total Outstanding",
-            value: formatCurrency(summary?.totalOwed ?? 0),
-            compactValue: formatCompact(summary?.totalOwed ?? 0),
+            value: figuresMasked ? "••••" : formatCurrency(summary?.totalOwed ?? 0),
+            compactValue: figuresMasked ? "••••" : formatCompact(summary?.totalOwed ?? 0),
             description: `${summary?.totalOwedCount ?? 0} customers owing`,
             icon: <BookOpen className="h-4 w-4" />,
             tone: "amber",
@@ -647,8 +648,8 @@ export default function CreditSalesPage() {
           },
           {
             title: "Overdue Balance",
-            value: formatCurrency(summary?.totalOverdue ?? 0),
-            compactValue: formatCompact(summary?.totalOverdue ?? 0),
+            value: figuresMasked ? "••••" : formatCurrency(summary?.totalOverdue ?? 0),
+            compactValue: figuresMasked ? "••••" : formatCompact(summary?.totalOverdue ?? 0),
             description: `${summary?.totalOverdueCount ?? 0} debts overdue`,
             icon: <AlertTriangle className="h-4 w-4 animate-pulse" />,
             tone: "rose",
@@ -656,8 +657,8 @@ export default function CreditSalesPage() {
           },
           {
             title: "Due This Week",
-            value: formatCurrency(summary?.totalDueThisWeek ?? 0),
-            compactValue: formatCompact(summary?.totalDueThisWeek ?? 0),
+            value: figuresMasked ? "••••" : formatCurrency(summary?.totalDueThisWeek ?? 0),
+            compactValue: figuresMasked ? "••••" : formatCompact(summary?.totalDueThisWeek ?? 0),
             description: `${summary?.totalDueThisWeekCount ?? 0} entries pending`,
             icon: <Calendar className="h-4 w-4" />,
             tone: "blue",
@@ -665,8 +666,8 @@ export default function CreditSalesPage() {
           },
           {
             title: "Collected (Month)",
-            value: formatCurrency(summary?.totalCollectedThisMonth ?? 0),
-            compactValue: formatCompact(summary?.totalCollectedThisMonth ?? 0),
+            value: figuresMasked ? "••••" : formatCurrency(summary?.totalCollectedThisMonth ?? 0),
+            compactValue: figuresMasked ? "••••" : formatCompact(summary?.totalCollectedThisMonth ?? 0),
             description: "Reflects successful collections",
             icon: <TrendingDown className="h-4 w-4" />,
             tone: "emerald",

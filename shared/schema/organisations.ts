@@ -15,6 +15,10 @@ export const organisations = pgTable("organisations", {
   receiptPrefix: text("receipt_prefix").default("EXB"),
   // When true, non-owner/manager users only see transactions they took part in.
   staffOwnTransactionsOnly: boolean("staff_own_transactions_only").notNull().default(true),
+  // Role keys (req.user.role) that see contact details / sensitive figures masked.
+  // Empty = nothing masked. Owner and manager are never masked (migration 0128).
+  maskContactRoles: text("mask_contact_roles").array().notNull().default(sql`'{}'`),
+  maskFiguresRoles: text("mask_figures_roles").array().notNull().default(sql`'{}'`),
   address: text("address"),
   phone: text("phone"),
   phoneCountryCode: text("phone_country_code").default("+234"),
@@ -70,6 +74,9 @@ export const insertOrganisationSchema = createInsertSchema(organisations).omit({
   phone: z.string().trim().refine(v => !v || v.replace(/\D/g, "").length >= 7, "Enter a valid phone number.").optional().or(z.literal("")),
   phoneCountryCode: z.string().default("+234"),
   businessUrl: z.string().optional(),
+  // Owner/manager are never masked, so they are not valid role keys here.
+  maskContactRoles: z.array(z.string().trim().toLowerCase().min(1)).refine((r) => !r.some((k) => k === "owner" || k === "manager"), "Owner and manager can't be masked.").optional(),
+  maskFiguresRoles: z.array(z.string().trim().toLowerCase().min(1)).refine((r) => !r.some((k) => k === "owner" || k === "manager"), "Owner and manager can't be masked.").optional(),
 });
 export const insertBusinessSchema = insertOrganisationSchema;
 

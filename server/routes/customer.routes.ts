@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import { verifyRecordStoreAccess } from './helpers';
 import { withCustomerId } from '../utils/slug-resolver';
+import { getMaskPolicy, maskCustomer } from '../lib/dataMasking';
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -32,7 +33,7 @@ export function registerCustomerRoutes(app: Express, { isAuthenticated }: RouteM
         return res.status(403).json({ error: "You don't have access to this customer." });
       }
 
-      res.json(customer);
+      res.json((await getMaskPolicy(req)).contact ? maskCustomer(customer) : customer);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load customer information. Please try again." });
     }

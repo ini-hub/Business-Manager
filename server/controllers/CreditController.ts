@@ -1,3 +1,4 @@
+import { getMaskPolicy, isPhoneLikeQuery } from "../lib/dataMasking";
 import { parsePage, paginated } from "../lib/pagination";
 import { Router, Request, Response } from "express";
 import { BaseController } from "./BaseController";
@@ -98,6 +99,9 @@ export class CreditController extends BaseController {
       const maxOutstanding = req.query.maxOutstanding ? parseFloat(req.query.maxOutstanding as string) : undefined;
       const customerId = req.query.customerId as string;
       const search = req.query.search as string;
+      if (isPhoneLikeQuery(search) && (await getMaskPolicy(req)).contact) {
+        return this.ok(res, paginated([], 0, parsePage(req.query)));
+      }
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
 

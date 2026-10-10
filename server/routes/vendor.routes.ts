@@ -15,6 +15,7 @@ import { bulkUploadService } from "../services/BulkUploadService";
 import { getUserId, getClientIp, getAuditContext, getUserStores, broadcastChange } from './helpers';
 import { withVendorId, withVendorBillId } from '../utils/slug-resolver';
 import { requirePermission } from "../lib/permissionGate";
+import { getMaskPolicy, maskVendor, stripMaskedValues } from "../lib/dataMasking";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -34,7 +35,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
 
       const includeArchived = req.query.includeArchived === "true";
       const result = await storage.vendorRepo.getVendors(storeId, includeArchived);
-      res.json(result);
+      res.json((await getMaskPolicy(req)).contact ? result.map(maskVendor) : result);
     } catch (error) {
       res.status(500).json({ error: "Could not fetch vendors." });
     }
@@ -189,7 +190,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       const vendor = await storage.vendorRepo.findById(req.params.id);
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
       if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
-      res.json(vendor);
+      res.json((await getMaskPolicy(req)).contact ? maskVendor(vendor) : vendor);
     } catch {
       res.status(500).json({ error: "Could not fetch vendor." });
     }
@@ -202,7 +203,7 @@ export function registerVendorRoutes(app: Express, { isAuthenticated, requireRol
       if (!vendor) return res.status(404).json({ error: "Vendor not found." });
       if (!(await checkStoreAccess(vendor.storeId, req, res))) return;
 
-      const { name, contactName, email, phone, address, notes } = req.body;
+      const { name, contactName, email, phone, address, notes } = stripMaskedValues(req.body);
       if (email && !validateEmailFormat(email)) return res.status(400).json({ error: "Enter a valid email address." });
 
       const updated = await storage.vendorRepo.updateVendor(req.params.id, {

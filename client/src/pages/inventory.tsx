@@ -126,6 +126,8 @@ function itemTypeBadgeClass(type: string) {
 export default function InventoryPage() {
   const { toast } = useToast();
   const { currentStore, business } = useStore();
+  // Cost prices are zeroed by the server for masked roles; show a placeholder, not ₦0.
+  const figuresMasked = !!(business as any)?.viewerMask?.figures;
   const { user } = useAuth();
   const [location, setLocation] = useLocation();
   const search = useSearch();
@@ -608,9 +610,9 @@ export default function InventoryPage() {
       businessName: business?.name ?? currentStore?.name ?? "Business",
       storeName: currentStore?.name ?? "All Stores",
       kpis: [
-        { label: "Cost Value", value: formatCurrency(totalCostValue) },
+        { label: "Cost Value", value: figuresMasked ? "••••" : formatCurrency(totalCostValue) },
         { label: "Retail Value", value: formatCurrency(totalRetailValue) },
-        { label: "Gross Margin", value: projectedGrossMarginDisplay },
+        { label: "Gross Margin", value: figuresMasked ? "••••" : projectedGrossMarginDisplay },
         {
           label: "Low Stock Items",
           value: String(lowStockCount),
@@ -710,6 +712,7 @@ export default function InventoryPage() {
       key: "costPrice",
       header: "Cost",
       render: (item: any) => {
+        if (figuresMasked) return <span className="font-mono text-sm">••••</span>;
         if (!item.variants || item.variants.length === 0) return <span className="font-mono text-sm">—</span>;
         const costs = item.variants.map((v: any) => v.costPrice);
         const min = Math.min(...costs);
@@ -774,6 +777,7 @@ export default function InventoryPage() {
       key: "margin",
       header: "Margin",
       render: (item: any) => {
+        if (figuresMasked) return <span className="font-mono text-sm">••••</span>;
         if (!item.variants || item.variants.length === 0) return <span className="font-mono text-sm">—</span>;
         const margins = item.variants.map((v: any) => {
           const marginVal = v.sellingPrice - v.costPrice;
@@ -936,9 +940,9 @@ export default function InventoryPage() {
 
       <MetricRow
         metrics={[
-          { title: "Total Cost Value", value: formatCurrency(totalCostValue), compactValue: formatCompact(totalCostValue), icon: <Package className="h-4 w-4" />, description: "Total value of products in stock", isLoading },
+          { title: "Total Cost Value", value: figuresMasked ? "••••" : formatCurrency(totalCostValue), compactValue: figuresMasked ? "••••" : formatCompact(totalCostValue), icon: <Package className="h-4 w-4" />, description: "Total value of products in stock", isLoading },
           { title: "Total Retail Value", value: formatCurrency(totalRetailValue), compactValue: formatCompact(totalRetailValue), icon: <Coins className="h-4 w-4" />, description: "Expected revenue if all sold", isLoading },
-          { title: "Projected Gross Margin", value: projectedGrossMarginDisplay, icon: <BarChart3 className="h-4 w-4" />, description: "Based on current stock value", isLoading },
+          { title: "Projected Gross Margin", value: figuresMasked ? "••••" : projectedGrossMarginDisplay, icon: <BarChart3 className="h-4 w-4" />, description: "Based on current stock value", isLoading },
           {
             title: "Low Stock Items",
             value: String(lowStockCount),
@@ -1561,7 +1565,7 @@ export default function InventoryPage() {
                       return (
                         <div key={item.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
                           <span className="truncate flex-1">{item.name}</span>
-                          <span className="text-muted-foreground shrink-0">{formatCurrency(variant.costPrice ?? 0)} ea</span>
+                          <span className="text-muted-foreground shrink-0">{figuresMasked ? "••••" : formatCurrency(variant.costPrice ?? 0)} ea</span>
                           <Input
                             type="number"
                             min={1}

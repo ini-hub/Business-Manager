@@ -44,6 +44,7 @@ const PAGE_LIMIT = 50;
 
 export default function Transactions() {
   const { currentStore, stores, business } = useStore();
+  const figuresMasked = !!(business as any)?.viewerMask?.figures;
   const [location, setLocation] = useLocation();
   const search = useSearch();
 
@@ -613,8 +614,8 @@ export default function Transactions() {
             metrics={[
               {
                 title: "Net Sales",
-                value: formatCurrency(actualRevenueNet),
-                compactValue: formatCompact(actualRevenueNet),
+                value: figuresMasked ? "••••" : formatCurrency(actualRevenueNet),
+                compactValue: figuresMasked ? "••••" : formatCompact(actualRevenueNet),
                 description:
                   totalRefunded > 0
                     ? `${formatCompact(totalAmount)} gross − ${formatCompact(totalRefunded)} returned`
@@ -624,15 +625,15 @@ export default function Transactions() {
               },
               {
                 title: "Completed Sales",
-                value: nonVoidedCount,
+                value: figuresMasked ? "••••" : nonVoidedCount,
                 description: "Excludes voided and fully returned",
                 icon: <Receipt className="h-4 w-4" />,
                 isLoading,
               },
               {
                 title: "Avg. Sale (Net)",
-                value: formatCurrency(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0),
-                compactValue: formatCompact(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0),
+                value: figuresMasked ? "••••" : formatCurrency(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0),
+                compactValue: figuresMasked ? "••••" : formatCompact(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0),
                 icon: <Coins className="h-4 w-4" />,
                 isLoading,
               },

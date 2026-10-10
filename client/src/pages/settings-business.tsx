@@ -83,6 +83,25 @@ export default function SettingsBusinessPage() {
     }
   };
 
+  // Which roles see contact details / sensitive figures masked (migration 0128).
+  // Owner and manager are never masked, so only Staff and custom roles are listed.
+  const { data: customRoles = [] } = useQuery<{ id: string; name: string }[]>({ queryKey: ["/api/custom-roles"], enabled: isOwner });
+  const maskRoles = useMemo(
+    () => [{ key: "staff", name: "Staff" }, ...customRoles.map((r) => ({ key: r.name.toLowerCase(), name: r.name }))],
+    [customRoles],
+  );
+  const maskedContact: string[] = (business as any)?.maskContactRoles ?? [];
+  const maskedFigures: string[] = (business as any)?.maskFiguresRoles ?? [];
+  const saveMask = async (field: "maskContactRoles" | "maskFiguresRoles", roles: string[]) => {
+    if (!business) return;
+    try {
+      await updateBusiness(business.id, { [field]: roles } as any);
+      toast({ title: "Visibility updated" });
+    } catch {
+      toast({ title: "Couldn't update this setting", description: "Please try again.", variant: "destructive" });
+    }
+  };
+
   if (isLoading) {
     return <div className="flex min-h-[400px] items-center justify-center"><Spinner className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
   }
@@ -271,6 +290,72 @@ export default function SettingsBusinessPage() {
             <button type="button" className="font-semibold text-primary underline" onClick={() => openBilling(setLocation)}>View plans &amp; add-ons</button>
           </p>
         )}
+      </Card>
+
+      <Card title="What staff can see" hint="Owners and managers always see everything. Masked values stay in place and show as ••••.">
+        <div className="space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <label htmlFor="mask-contact" className="text-sm">
+              <span className="font-medium">Mask contact details</span>
+              <span className="block text-muted-foreground">Customer, supplier and colleague phone numbers, emails and addresses. Call and WhatsApp buttons are turned off and searching by phone number is blocked.</span>
+            </label>
+            <Switch
+              id="mask-contact"
+              checked={maskedContact.length > 0}
+              onCheckedChange={(on) => saveMask("maskContactRoles", on ? maskRoles.map((r) => r.key) : [])}
+              disabled={!isOwner}
+              data-testid="switch-mask-contact"
+            />
+          </div>
+          {maskedContact.length > 0 && (
+            <div className="space-y-2 rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Masked for these roles:</p>
+              {maskRoles.map((r) => (
+                <div key={r.key} className="flex items-center justify-between gap-4 text-sm">
+                  <span>{r.name}</span>
+                  <Switch
+                    checked={maskedContact.includes(r.key)}
+                    onCheckedChange={(on) => saveMask("maskContactRoles", on ? [...maskedContact, r.key] : maskedContact.filter((k) => k !== r.key))}
+                    disabled={!isOwner}
+                    data-testid={`switch-mask-contact-${r.key}`}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <label htmlFor="mask-figures" className="text-sm">
+              <span className="font-medium">Mask sensitive figures</span>
+              <span className="block text-muted-foreground">Revenue, profit, transaction totals, cost prices, balances and debts.</span>
+            </label>
+            <Switch
+              id="mask-figures"
+              checked={maskedFigures.length > 0}
+              onCheckedChange={(on) => saveMask("maskFiguresRoles", on ? maskRoles.map((r) => r.key) : [])}
+              disabled={!isOwner}
+              data-testid="switch-mask-figures"
+            />
+          </div>
+          {maskedFigures.length > 0 && (
+            <div className="space-y-2 rounded-lg border p-3">
+              <p className="text-xs text-muted-foreground">Masked for these roles:</p>
+              {maskRoles.map((r) => (
+                <div key={r.key} className="flex items-center justify-between gap-4 text-sm">
+                  <span>{r.name}</span>
+                  <Switch
+                    checked={maskedFigures.includes(r.key)}
+                    onCheckedChange={(on) => saveMask("maskFiguresRoles", on ? [...maskedFigures, r.key] : maskedFigures.filter((k) => k !== r.key))}
+                    disabled={!isOwner}
+                    data-testid={`switch-mask-figures-${r.key}`}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        {!isOwner && <p className="text-xs text-muted-foreground">Only the owner can change this.</p>}
       </Card>
 
       {isOwner ? (

@@ -2,6 +2,7 @@ import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { planStoreChoice } from "../lib/storeChoice";
 import { requireCustomerSpendAccess } from "../lib/transactionAccess";
+import { getMaskPolicy, maskCustomer, maskCustomerPhone, isPhoneLikeQuery } from "../lib/dataMasking";
 import { invalidateStoreTimezone } from "../lib/dateUtils";
 import { storage } from "../storage";
 import { LOGO_PATH, LogoError, isDataUrl, isS3Ref, s3KeyOf, parseDataUrl, persistableLogo, withPublicLogo } from "../lib/businessLogo";
@@ -155,7 +156,11 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
           }
         }
 
-        return res.json(business ? withPublicLogo(business) : null);
+        if (!business) return res.json(null);
+        // Tell the client how this viewer's data is masked so it can show placeholders and
+        // disable call/WhatsApp actions. The server has already masked the data itself.
+        const viewerMask = await getMaskPolicy(req);
+        return res.json({ ...withPublicLogo(business), viewerMask });
       }
 
       res.json(null);
@@ -838,6 +843,9 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       const normalizedPhone = sanitizePhoneNumber(phone);
       if (!normalizedPhone) return res.status(200).json({ duplicate: false });
 
+      // A masked viewer must not be able to confirm which number belongs to whom.
+      if ((await getMaskPolicy(req)).contact) return res.json({ duplicate: false });
+
       const existing = await storage.findCustomerByPhone(storeId, normalizedPhone);
       if (existing && !existing.isConfirmedDistinct) {
         let lastTransactionDate: Date | null = null;
@@ -876,7 +884,8 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (!(await checkStoreAccess(storeId, req, res))) return;
       const excludeId = (req.query.excludeId as string) || undefined;
       const similar = await storage.findSimilarCustomers(storeId, name, excludeId);
-      res.json({ similar: similar.filter(c => !c.isConfirmedDistinct) });
+      const visible = similar.filter(c => !c.isConfirmedDistinct);
+      res.json({ similar: (await getMaskPolicy(req)).contact ? visible.map(maskCustomer) : visible });
     } catch (error) {
       res.status(500).json({ error: "Could not check for similar customers." });
     }
@@ -900,7 +909,8 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     try {
       const customer = await loadCustomerForPhones(req, res);
       if (!customer) return;
-      res.json(await storage.getCustomerPhones(customer.id));
+      const phones = await storage.getCustomerPhones(customer.id);
+      res.json((await getMaskPolicy(req)).contact ? phones.map(maskCustomerPhone) : phones);
     } catch (error) {
       res.status(500).json({ error: "Could not load phone numbers." });
     }
@@ -976,8 +986,10 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(404).json({ error: "Store not found." });
       }
 
+      const mask = (await getMaskPolicy(req)).contact;
+      if (mask && isPhoneLikeQuery(query)) return res.json([]);
       const results = await storage.searchGlobalCustomers(store.businessId, storeId, query);
-      res.json(results);
+      res.json(mask ? results.map(maskCustomer) : results);
     } catch (error) {
       console.error("Global Customer Search Error:", error);
       res.status(500).json({ error: "Could not execute global customer search." });
@@ -1044,8 +1056,12 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         if (!(await checkStoreAccess(storeId, req, res))) return;
         storeIds = [storeId];
       }
+      const maskContact = (await getMaskPolicy(req)).contact;
+      if (maskContact && isPhoneLikeQuery(options.search)) {
+        return res.json(paginated([], 0, pageReq));
+      }
       const { rows, total } = await storage.getCustomersPage(storeIds, options, pageReq);
-      res.json(paginated(rows, total, pageReq));
+      res.json(paginated(maskContact ? rows.map(maskCustomer) : rows, total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your customers. Please try again." });
     }

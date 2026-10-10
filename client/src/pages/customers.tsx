@@ -361,7 +361,7 @@ export default function Customers() {
   ];
 
   const activeRowActions = (customer: Customer): RowAction[] => [
-    ...(customer.mobileNumber ? [{
+    ...(customer.mobileNumber && !(business as any)?.viewerMask?.contact ? [{
       label: "Call",
       icon: <Phone className="h-4 w-4" />,
       onClick: () => {

@@ -16,7 +16,8 @@ import { formatCurrencyCompact } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 
 export default function RegisterShifts() {
-  const { currentStore, stores } = useStore();
+  const { currentStore, stores, business } = useStore();
+  const figuresMasked = !!(business as any)?.viewerMask?.figures;
   const storeCurrency = currentStore?.currency || "NGN";
 
   const formatCurrency = (value: number) =>
@@ -131,14 +132,14 @@ export default function RegisterShifts() {
       key: "openingFloat",
       header: "Base Float",
       render: (session: any) => (
-        <span className="font-mono text-xs font-semibold text-foreground">{formatCurrency(Number(session.openingFloat))}</span>
+        <span className="font-mono text-xs font-semibold text-foreground">{figuresMasked ? "••••" : formatCurrency(Number(session.openingFloat))}</span>
       ),
     },
     {
       key: "expectedCash",
       header: "Expected Till",
       render: (session: any) => (
-        <span className="font-mono text-xs font-semibold text-muted-foreground">{formatCurrency(Number(session.expectedCash))}</span>
+        <span className="font-mono text-xs font-semibold text-muted-foreground">{figuresMasked ? "••••" : formatCurrency(Number(session.expectedCash))}</span>
       ),
     },
     {

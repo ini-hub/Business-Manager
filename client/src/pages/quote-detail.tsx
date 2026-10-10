@@ -131,7 +131,7 @@ function Stepper({ steps }: { steps: Step[] }) {
 export default function QuoteDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
-  const { stores, currentStore } = useStore();
+  const { stores, currentStore, business } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
   const poweredBy = usePoweredByText();
@@ -477,7 +477,9 @@ export default function QuoteDetailPage() {
           >
             <Row label="Name"><span className="font-semibold">{customerName}</span></Row>
             <Row label="Phone">
-              {quote.customer?.mobileNumber
+              {quote.customer?.mobileNumber && (business as any)?.viewerMask?.contact
+                ? <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{quote.customer.mobileNumber}</span>
+                : quote.customer?.mobileNumber
                 ? <a href={`tel:${quote.customer.mobileNumber}`} className="inline-flex items-center gap-1 text-primary hover:underline"><Phone className="h-3.5 w-3.5" />{quote.customer.mobileNumber}</a>
                 : <span className="text-muted-foreground">Not added</span>}
             </Row>

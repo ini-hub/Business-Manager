@@ -1,3 +1,4 @@
+import { useViewerMask } from "@/hooks/useViewerMask";
 import { fetchAllPages } from "@/lib/paginated";
 import { useState, useMemo } from "react";
 import { buildSlug, isUUID } from "@/lib/slug";
@@ -59,6 +60,8 @@ import { MergeProfilesDialog } from "@/components/MergeProfilesDialog";
 import { CustomerGamificationCard } from "@/components/gamification/CustomerGamificationCard";
 
 export default function CustomerDetails({ view = "overview" }: { view?: "overview" | "logs" }) {
+  // Masked viewers can't call or WhatsApp a customer: the number is hidden by the server.
+  const viewerMask = useViewerMask();
   const isLogs = view === "logs";
   // Credit / Booking tabs belong to their modules: hidden unless the module is available to this org.
   const { hasFeature, isLoading: entitlementsLoading } = useEntitlements();
@@ -329,7 +332,7 @@ export default function CustomerDetails({ view = "overview" }: { view?: "overvie
     return !latest || d > latest ? d : latest;
   }, null);
 
-  const rawPhone = customer.mobileNumber
+  const rawPhone = customer.mobileNumber && !viewerMask.contact
     ? normalizePhoneForStorage(customer.mobileNumber, customer.countryCode || "+234")
     : null;
 

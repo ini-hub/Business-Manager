@@ -1,3 +1,4 @@
+import { figureMaskMiddleware } from "./lib/dataMasking";
 import { checkCatalogHealth } from "./lib/entitlements";
 import { checkStoreAccessHelper, getClientIp, formatZodErrors } from "./routes/helpers";
 import type { Express, Request, Response, NextFunction } from "express";
@@ -187,6 +188,8 @@ export async function registerRoutes(
   // Deny-by-default paid-feature gate (see server/lib/featurePolicy.ts). Count caps
   // (staff/customers/stores) are enforced in the storage layer instead.
   app.use("/api", enforceFeaturePolicy);
+  // Zeroes sensitive figures in responses for roles the owner chose to mask (migration 0128).
+  app.use("/api", figureMaskMiddleware());
 
   // Initialize dynamic OOP Router Registry
   const registry = new RouterRegistry([

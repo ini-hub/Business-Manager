@@ -2,6 +2,7 @@ import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { checkoutInScope, resolveTransactionScope } from "../lib/transactionAccess";
 import { storage } from "../storage";
+import { getMaskPolicy, maskDocumentContacts, isPhoneLikeQuery } from "../lib/dataMasking";
 import { auditLogger } from "../audit";
 import { getCheckoutMoneyDetails } from "../lib/checkoutAuditDetails";
 import { getClientIp, getUserStores, broadcastChange, getAuditContext } from './helpers';
@@ -140,6 +141,10 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       }
       const filters = { startDate, endDate };
       const search = req.query.search as string | undefined;
+      const maskContact = (await getMaskPolicy(req)).contact;
+      // A masked viewer can't search receipts by phone number (it would reveal hidden numbers).
+      if (maskContact && isPhoneLikeQuery(search)) return res.json(paginated([], 0, pageReq));
+      const maskRows = <T,>(rows: T[]): T[] => (maskContact ? rows.map((r) => maskDocumentContacts(r as any)) : rows);
 
       if (storeId === "all") {
         const stores = await getUserStores(req);
@@ -148,14 +153,14 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         // Non-owner/manager users only see their own checkouts (business setting).
         const scope = await resolveTransactionScope((req as any).user, stores.map(s => s.id));
         const { data, total } = await pageOfReceipts(stores.map(s => s.id), filters, scope, search, pageReq.page, pageReq.limit);
-        return res.json(paginated(data, total, pageReq));
+        return res.json(paginated(maskRows(data), total, pageReq));
       }
 
       if (!(await checkStoreAccess(storeId, req, res))) return;
 
       const scope = await resolveTransactionScope((req as any).user, [storeId]);
       const { data, total } = await pageOfReceipts([storeId], filters, scope, search, pageReq.page, pageReq.limit);
-      res.json(paginated(data, total, pageReq));
+      res.json(paginated(maskRows(data), total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your transactions. Please try again." });
     }
@@ -176,7 +181,7 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         return res.status(403).json({ error: "You can only view transactions you took part in." });
       }
 
-      res.json(tx);
+      res.json((await getMaskPolicy(req)).contact ? maskDocumentContacts(tx as any) : tx);
     } catch (error) {
       res.status(500).json({ error: "Could not load transaction." });
     }
@@ -193,7 +198,8 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       // This customer's receipts, newest first, one page at a time (a regular can have thousands).
       const scope = await resolveTransactionScope(req.user, [customer.storeId]);
       const { data, total } = await pageOfReceipts([customer.storeId], { customerId: customer.id }, scope, undefined, pageReq.page, pageReq.limit);
-      res.json(paginated(data, total, pageReq));
+      const maskContact = (await getMaskPolicy(req)).contact;
+      res.json(paginated(maskContact ? data.map((r: any) => maskDocumentContacts(r)) : data, total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load customer transactions. Please try again." });
     }
@@ -213,7 +219,8 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         return res.status(403).json({ error: "You can only view receipts for transactions you took part in." });
       }
       const paymentLegs = await storage.paymentAccountRepo.getLegsForReceipt(payload.checkout.storeId, payload.checkout.receiptNumber);
-      res.json({ ...payload, paymentLegs });
+      const body = { ...payload, paymentLegs };
+      res.json((await getMaskPolicy(req)).contact ? maskDocumentContacts(body as any) : body);
     } catch (error) {
       console.error("Receipt API Error:", error);
       res.status(500).json({ error: "Could not load receipt data." });
@@ -535,6 +542,9 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
   app.get("/api/customers/:id/store-credit", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const customer = await storage.getCustomer(id);
+      if (!customer) return res.status(404).json({ error: "Customer not found." });
+      if (!(await checkStoreAccess(customer.storeId, req, res))) return;
       const transactionsList = await storage.getStoreCreditTransactions(id);
       res.json(transactionsList);
     } catch (error) {

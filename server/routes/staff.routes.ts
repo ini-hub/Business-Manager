@@ -30,6 +30,7 @@ import { validateHrFieldValue } from "@shared/hr-field-validation";
 import { getUserId, getAuditContext, formatZodErrors, verifyStoreAccess, verifyRecordStoreAccess, broadcastChange } from './helpers';
 import { requireCountLimit, checkCountLimit, sendPlanLimitError, CountLimitError } from "../lib/entitlements";
 import { requirePermission } from "../lib/permissionGate";
+import { getMaskPolicy, maskStaffContact, stripMaskedValues } from "../lib/dataMasking";
 import { checkRoleAssignable } from "../lib/roleManagement";
 
 // The work number is the HR profile's "work_phone" field - the staff form
@@ -105,7 +106,16 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       // responses. inviteStatus is derived from it first, so the client can
       // tell a stranded invitation from an activated account without ever
       // seeing the account id itself.
-      const store = await storage.getStore(storeId);
+      // The store lookup, the viewer's mask policy and the page itself don't depend on each other: with a
+      // remote DB each sequential statement is a full round trip, so issue them together.
+      const pageReq = parsePage(req.query);
+      const search = req.query.search as string | undefined;
+      const includeArchived = req.query.includeArchived !== "false";
+      const [store, mask, result] = await Promise.all([
+        storage.getStore(storeId),
+        getMaskPolicy(req),
+        storage.getStaffPaginated(storeId, { page: pageReq.page, limit: pageReq.limit, search, includeArchived }),
+      ]);
       const businessId = store?.businessId || (req as any).user?.organisationId || (req as any).user?.businessId;
       const attachInviteStatus = async (list: any[]) => {
         const statuses = businessId
@@ -145,16 +155,16 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       // One page at a time (page 1 at the default size when none is asked for); screens that need every staff
       // member walk the pages (client/src/lib/staff-api.ts). Archived staff are included unless
       // includeArchived=false, as the unpaged list always did.
-      const pageReq = parsePage(req.query);
-      const search = req.query.search as string | undefined;
-      const includeArchived = req.query.includeArchived !== "false";
-      const result = await storage.getStaffPaginated(storeId, { page: pageReq.page, limit: pageReq.limit, search, includeArchived });
-      if (req.user?.role === "staff") {
+      if (req.user?.role === "staff" || mask.figures) {
         redactWages(result.data);
       }
       await Promise.all([attachInviteStatus(result.data), attachContractStatus(result.data), attachWorkPhone(result.data)]);
-      redactUserId(result.data);
-      res.json(paginated(result.data, result.pagination.total, pageReq));
+      // Colleagues' contact details are masked; a viewer's own row is left alone.
+      const data = mask.contact
+        ? result.data.map((s: any) => (s.userId && s.userId === req.user?.id ? s : maskStaffContact(s)))
+        : result.data;
+      redactUserId(data);
+      res.json(paginated(data, result.pagination.total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your staff members. Please try again." });
     }
@@ -172,7 +182,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         return res.status(403).json({ error: "You don't have access to this staff member." });
       }
 
-      if ((req as any).user?.role === "staff") {
+      const maskPolicy = await getMaskPolicy(req);
+      if ((req as any).user?.role === "staff" || maskPolicy.figures) {
         staffMember.payPerMonth = 0;
         staffMember.commissionRateOverride = null;
         staffMember.commissionFixedAmountOverride = null;
@@ -196,8 +207,10 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
         ? (await hrPersonalProfileService.getWorkPhones([staffMember.id], singleBusinessId)).get(staffMember.id) ?? null
         : null;
 
-      delete (staffMember as any).userId;
-      res.json(staffMember);
+      const isSelf = !!staffMember.userId && staffMember.userId === (req as any).user?.id;
+      const out = maskPolicy.contact && !isSelf ? maskStaffContact(staffMember) : staffMember;
+      delete (out as any).userId;
+      res.json(out);
     } catch (error) {
       res.status(500).json({ error: "We couldn't load staff information. Please try again." });
     }
@@ -347,12 +360,6 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       );
 
       const refreshedStaff = await storage.getStaff(staffMember.id);
-      const inviteStatus = resolvedBusinessId
-        ? await staffInviteService.computeInviteStatus(
-            { id: staffMember.id, userId: refreshedStaff?.userId },
-            resolvedBusinessId,
-          )
-        : "none";
 
       // Contract attach happens last, after the invite outcome is known:
       // branch C (attachExistingUser) adds membership as 'active' immediately
@@ -360,7 +367,6 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       // still gets stored for the record, but computeContractStatus reports
       // it as not_applicable_existing_account rather than pending_signature
       // once the membership is active - see StaffContractService's docstring.
-      let contractStatus: string = "none";
       let contractWarning: string | undefined;
       if (contractInput) {
         const contractOutcome = await staffContractService.attachContract({
@@ -377,6 +383,13 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
           });
         }
       }
+      const inviteStatus = resolvedBusinessId
+        ? await staffInviteService.computeInviteStatus(
+            { id: staffMember.id, userId: refreshedStaff?.userId },
+            resolvedBusinessId,
+          )
+        : "none";
+      let contractStatus: string = "none";
       if (resolvedBusinessId) {
         contractStatus = await staffContractService.computeContractStatus(
           { id: staffMember.id, userId: refreshedStaff?.userId },
@@ -437,6 +450,8 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
 
   app.patch("/api/staff/:id", requirePermission("/staffs"), async (req, res) => {
     try {
+      // A masked viewer's edit form is prefilled with the placeholder; never write it back.
+      req.body = stripMaskedValues(req.body);
       const staffMember = await storage.getStaff(req.params.id);
       if (!staffMember) {
         return res.status(404).json({ error: "Staff member not found." });

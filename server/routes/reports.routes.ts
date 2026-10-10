@@ -1,3 +1,5 @@
+import { checkoutInScope, resolveTransactionScope } from "../lib/transactionAccess";
+import { getMaskPolicy, isPhoneLikeQuery } from "../lib/dataMasking";
 import { getCashFlowTotals } from "../lib/cashFlow";
 import { isUniqueViolation } from "../db-errors";
 import { getVatByMonth, getServiceStaffDays } from "../lib/storeSummaries";
@@ -28,6 +30,8 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       const q = ((req.query.q as string) ?? "").trim();
       const storeId = req.query.storeId as string;
       if (!q || q.length < 2) return res.json(empty);
+      // Masked viewers can't search by phone number (it would reveal hidden numbers).
+      if (isPhoneLikeQuery(q) && (await getMaskPolicy(req)).contact) return res.json(empty);
       if (!storeId) return res.status(400).json({ error: "Store ID required." });
 
       // "all" is the owner's consolidated view, not a store id — resolving it
@@ -47,10 +51,14 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         storage.searchTransactions(storeIds, q)
       ]);
 
+      // Receipts are limited to the viewer's own checkouts, same rule as /api/transactions.
+      const scope = await resolveTransactionScope((req as any).user, storeIds);
+      const scopedTransactions = scope ? transactionsRes.filter((t: any) => checkoutInScope(t, scope)) : transactionsRes;
+
       res.json({
         customers: customersRes,
         inventory: inventoryRes,
-        transactions: transactionsRes,
+        transactions: scopedTransactions,
       });
     } catch (error) {
       console.error(error);
