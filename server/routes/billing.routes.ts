@@ -1,8 +1,5 @@
 import { parsePage } from "../lib/pagination";
 import { pagedSelect, totalOf } from "../lib/pagedQuery";
-import { listScreenGates } from "../lib/gateRules";
-import { getSidebarLayout } from "../lib/platformConfig";
-import { getUserPermissions } from "../lib/roles";
 import { tiersNotAbove, validateTierSelection } from "@shared/features";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
@@ -17,8 +14,9 @@ import {
   verifyWebhookSignature,
 } from "../lib/paystack";
 import { createPendingPayment, activateSuccessfulPayment, planPrice } from "../lib/billing";
-import { getActiveFeaturePricing, getOrgEntitlements, getOrgPurchasedFeatures, validatePurchaseDependencies, scheduleFeatureRemoval, getFeatureByKey, getCountLimitStatus, loadLimitTiers, getOrgFeatureView, getOrgLifecycleView } from "../lib/entitlements";
+import { getActiveFeaturePricing, getOrgPurchasedFeatures, validatePurchaseDependencies, scheduleFeatureRemoval, getFeatureByKey, loadLimitTiers } from "../lib/entitlements";
 import { featureCatalog } from "@shared/schema";
+import { loadEntitlementsPayload } from "../lib/shellData";
 import { priceIncrement } from "@shared/bundles";
 import { getPricingBundles, getPublicPricing, discountBreakdownLine, catalogPrice } from "../lib/pricing";
 
@@ -329,38 +327,7 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
       const user = (req as any).user;
       if (!user?.businessId) return res.status(401).json({ error: "Authentication required." });
 
-      const [granted, purchased, staffSeats, customerCount, storeCount, itemCount] = await Promise.all([
-        getOrgEntitlements(user.businessId),
-        getOrgPurchasedFeatures(user.businessId),
-        getCountLimitStatus(user.businessId, "staff_seats", typeof req.query.storeId === "string" ? req.query.storeId : undefined),
-        getCountLimitStatus(user.businessId, "customer_count"),
-        getCountLimitStatus(user.businessId, "store_count"),
-        getCountLimitStatus(user.businessId, "item_count"),
-      ]);
-
-      const [featureView, lifecycle] = await Promise.all([getOrgFeatureView(user.businessId), getOrgLifecycleView(user.businessId)]);
-      const screenGates = (await listScreenGates()).map(({ pattern, featureKey, module, source }) => ({ pattern, featureKey, module, source }));
-      const [sidebarLayout, permissions] = await Promise.all([getSidebarLayout(), getUserPermissions(user)]);
-
-      res.json({
-        features: Array.from(granted),
-        // Client screens that need a feature (code baseline + admin-defined rules), so the
-        // sidebar and router lock them from the same data the server enforces.
-        screenGates,
-        // The super-admin sidebar layout, or null for the built-in default (shared/sidebarLayout.ts).
-        sidebarLayout,
-        // The pages this person's role may use (shared/permissions.ts); the sidebar shows only these.
-        permissions: Array.from(permissions),
-        // Subset of `features` that's actually been purchased (or is free),
-        // never inflated by the trial blanket grant - see getOrgPurchasedFeatures.
-        purchasedFeatures: Array.from(purchased),
-        // Flag off / deactivated: the client HIDES these. Everything else not in
-        // `features` is on-but-unpaid: shown locked, priced via featurePrices.
-        lifecycle,
-        disabledFeatures: featureView.disabled,
-        featurePrices: featureView.prices,
-        limits: { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount, item_count: itemCount },
-      });
+      res.json(await loadEntitlementsPayload(user, typeof req.query.storeId === "string" ? req.query.storeId : undefined));
     } catch (error) {
       console.error("GET /api/entitlements error:", error);
       res.status(500).json({ error: "We couldn't load your plan's features. Please try again." });

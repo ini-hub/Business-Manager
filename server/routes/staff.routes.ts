@@ -383,19 +383,14 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
           });
         }
       }
-      const inviteStatus = resolvedBusinessId
-        ? await staffInviteService.computeInviteStatus(
-            { id: staffMember.id, userId: refreshedStaff?.userId },
-            resolvedBusinessId,
-          )
-        : "none";
-      let contractStatus: string = "none";
-      if (resolvedBusinessId) {
-        contractStatus = await staffContractService.computeContractStatus(
-          { id: staffMember.id, userId: refreshedStaff?.userId },
-          resolvedBusinessId,
-        );
-      }
+      // Both statuses read the same membership projection and are independent: one round trip, not two.
+      const statusRow = { id: staffMember.id, userId: refreshedStaff?.userId };
+      const [inviteStatus, contractStatus]: [string, string] = resolvedBusinessId
+        ? await Promise.all([
+            staffInviteService.computeInviteStatus(statusRow, resolvedBusinessId),
+            staffContractService.computeContractStatus(statusRow, resolvedBusinessId),
+          ])
+        : ["none", "none"];
 
       broadcastChange(req, "staff", data.storeId, "created");
       res.status(201).json({

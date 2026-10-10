@@ -22,7 +22,7 @@ import { db } from "../db";
 import { eq, and, gte, lte, count, desc } from "drizzle-orm";
 import { sanitizeString, sanitizePhoneNumber } from "../sanitize";
 import { auditLogger } from "../audit";
-import { isTrialExpired } from "../lib/trial";
+import { loadActiveBusiness, loadVisibleStores } from "../lib/shellData";
 import { logFunnelEvent } from "../lib/funnel";
 import { getUserId, getAuditContext, formatZodErrors, getUserStores, verifyStoreAccess, verifyRecordStoreAccess } from './helpers';
 import { withCustomerId } from '../utils/slug-resolver';
@@ -121,49 +121,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(401).json({ error: "Authentication required." });
       }
 
-      // 1. Check active session businessId from claims
-      let activeBusinessId = user.businessId;
-
-      // 2. Fallback to database user record if not in active session
-      if (!activeBusinessId) {
-        const userRecord = await storage.getUser(user.id);
-        activeBusinessId = userRecord?.businessId;
-      }
-
-      // 3. Fallback to first joined organization in database
-      if (!activeBusinessId) {
-        const userOrgs = await storage.getOrganisationsByUserId(user.id);
-        if (userOrgs.length > 0) {
-          activeBusinessId = userOrgs[0].id;
-          // Sync default businessId in user profile
-          await storage.updateUser(user.id, { businessId: activeBusinessId });
-        }
-      }
-
-      if (activeBusinessId) {
-        let business = await storage.getBusinessById(activeBusinessId);
-
-        // Lazy trial-expiry flip: an org only ever reaches this branch if it was
-        // created "trialing" by the signup flow, so this never touches a
-        // pre-existing organisation (they're all "active" and never "trialing").
-        if (business && isTrialExpired(business)) {
-          const [subscription] = await db
-            .select()
-            .from(subscriptions)
-            .where(eq(subscriptions.organisationId, business.id));
-          if (subscription?.status === "active") {
-            business = (await storage.updateBusiness(business.id, { status: "active" })) || business;
-          }
-        }
-
-        if (!business) return res.json(null);
-        // Tell the client how this viewer's data is masked so it can show placeholders and
-        // disable call/WhatsApp actions. The server has already masked the data itself.
-        const viewerMask = await getMaskPolicy(req);
-        return res.json({ ...withPublicLogo(business), viewerMask });
-      }
-
-      res.json(null);
+      res.json(await loadActiveBusiness(req as any));
     } catch (error) {
       console.error("GET /api/business error:", error);
       res.status(500).json({ error: "We couldn't load business information. Please try again." });
@@ -358,34 +316,9 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
   // ========== STORES ==========
   app.get("/api/stores", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req as any).user?.userId || (req as any).user?.id;
-      if (!userId) {
-        return res.status(401).json({ error: "Please log in to access stores." });
-      }
-
-      let businessId = req.query.businessId as string;
-      const userBusinessId = (req as any).user?.businessId;
-
-      // Fallback to active session businessId if not specified in query
-      businessId = businessId || userBusinessId;
-
-      if (!businessId) {
-        return res.status(400).json({ error: "Please select a business first." });
-      }
-
-      // Verify user has direct membership access to the requested business
-      const member = await storage.getOrganisationMember(userId, businessId);
-      if (!member) {
-        return res.status(403).json({ error: "Unauthorized access to business data." });
-      }
-
-      let storeList = await storage.getStores(businessId);
-      // Staff only see the store(s) they are assigned to.
-      if ((req as any).user?.role === "staff") {
-        const assigned = new Set((await storage.getAllStaffByUserId(userId)).map((st) => st.storeId));
-        storeList = storeList.filter((st) => assigned.has(st.id));
-      }
-      res.json(storeList);
+      const result = await loadVisibleStores(req as any, req.query.businessId as string | undefined);
+      if (!result.ok) return res.status(result.status).json({ error: result.error });
+      res.json(result.data);
     } catch (error) {
       console.error("GET /api/stores error:", error);
       res.status(500).json({ error: "We couldn't load your stores. Please try again." });

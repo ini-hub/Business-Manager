@@ -323,13 +323,24 @@ export async function getRouteStats(range: HealthRange, now = Date.now(), limit 
 }
 
 let timer: NodeJS.Timeout | undefined;
+let flushing = false;
 
 /** Start the periodic flush and old-row cleanup. Idempotent. */
 export function startHealthMetricsFlush(): void {
   if (timer) return;
   let ticks = 0;
   timer = setInterval(() => {
-    flushHealthMetrics().catch((e) => console.error("[HealthMetrics] flush failed:", e));
+    // Skip a tick while the previous flush is still waiting on a pool connection, so a starved pool
+    // doesn't pile up identical upserts. Counters are cumulative, so a skipped or failed tick loses
+    // nothing. Log one line: a Drizzle error carries the whole query and every bind parameter.
+    if (!flushing) {
+      flushing = true;
+      flushHealthMetrics()
+        .catch((e) => console.error("[HealthMetrics] flush failed:", e?.cause?.message ?? e?.message ?? e))
+        .finally(() => {
+          flushing = false;
+        });
+    }
     if (++ticks % 60 === 0) {
       const cutoff = new Date(Date.now() - RETENTION_MS);
       db.delete(healthMetricsHourly)

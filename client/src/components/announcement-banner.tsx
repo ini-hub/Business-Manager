@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAfterFirstPaint } from "@/hooks/useAfterFirstPaint";
 import { useQuery } from "@tanstack/react-query";
 import { X, Info, AlertTriangle, Wrench, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -40,11 +41,12 @@ function getDismissedIds(): string[] {
 
 export function AnnouncementBanner() {
   const { user } = useAuth();
+  const afterFirstPaint = useAfterFirstPaint();
   const [dismissed, setDismissed] = useState<string[]>(getDismissedIds);
 
   const { data } = useQuery<{ announcements: Announcement[] }>({
     queryKey: ["/api/announcements"],
-    enabled: !!user,
+    enabled: !!user && afterFirstPaint,
     refetchInterval: 5 * 60 * 1000,
   });
 

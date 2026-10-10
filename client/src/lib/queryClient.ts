@@ -154,6 +154,53 @@ const isPageEnvelope = (body: any): body is Paginated<unknown> => !!body && Arra
 
 const COUNTED_RESOURCE = /^\/api\/(staff|customers|products|inventory|stores)(\/|\?|$)/;
 
+// --- Shell bootstrap ------------------------------------------------------------------------------
+// A returning visitor's page load needs the user, business, stores, entitlements, consent status and
+// organisations before anything useful can paint. Fetched one by one (some waiting on others) that is
+// many round trips; GET /api/bootstrap returns all of them at once. The shell queries below consume their
+// section from it instead of making their own request. Each section is used once and only briefly after
+// the page loaded, so refreshes and invalidations always go to the real endpoints.
+type BootstrapSection = { ok: true; data: unknown } | { ok: false };
+type BootstrapBody = Partial<Record<"user" | "business" | "stores" | "entitlements" | "consent" | "organisations", BootstrapSection>>;
+const BOOTSTRAP_MAX_AGE_MS = 30_000;
+let bootstrapPending: Promise<BootstrapBody | null> | null = null;
+let bootstrapStartedAt = 0;
+const bootstrapTaken = new Set<string>();
+
+/** Start the one-shot shell request. Call before render, and only when a session is likely (it is a 401 otherwise). */
+export function startBootstrap(): void {
+  if (bootstrapPending) return;
+  bootstrapStartedAt = Date.now();
+  bootstrapPending = fetch("/api/bootstrap", { credentials: "include" })
+    .then((res) => (res.ok ? (res.json() as Promise<BootstrapBody>) : null))
+    .catch(() => null);
+}
+
+async function takeBootstrapSection(url: string): Promise<{ data: unknown } | null> {
+  if (!bootstrapPending) return null;
+  let name: keyof BootstrapBody | null = null;
+  if (url === "/api/auth/user") name = "user";
+  else if (url === "/api/business") name = "business";
+  else if (url === "/api/entitlements") name = "entitlements";
+  else if (url === "/api/legal/consent-status") name = "consent";
+  else if (url === "/api/auth/organisations") name = "organisations";
+  else if (url === "/api/stores" || url.startsWith("/api/stores?businessId=")) name = "stores";
+  if (!name || bootstrapTaken.has(name)) return null;
+
+  const body = await bootstrapPending;
+  if (Date.now() - bootstrapStartedAt > BOOTSTRAP_MAX_AGE_MS) return null;
+  const sectionData = body?.[name];
+  if (!sectionData?.ok) return null;
+  // A stores request for a different business than the one bootstrapped is not ours to answer.
+  if (name === "stores" && url !== "/api/stores") {
+    const business = body?.business;
+    const businessId = business && business.ok ? (business.data as { id?: string } | null)?.id : undefined;
+    if (url !== `/api/stores?businessId=${businessId}`) return null;
+  }
+  bootstrapTaken.add(name);
+  return { data: sectionData.data };
+}
+
 type UnauthorizedBehavior = "returnNull" | "throw";
 const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
@@ -178,6 +225,9 @@ const getQueryFn: <T>(options: {
 
     // Catalog lists are paged: ask for the largest page up front so most stores need a single request.
     if (CATALOG_LIST.test(url) && !/[?&]limit=/.test(url)) url += `${url.includes("?") ? "&" : "?"}page=1&limit=200`;
+
+    const seeded = await takeBootstrapSection(url);
+    if (seeded) return seeded.data as any;
 
     const res = await fetch(url, {
       credentials: "include",

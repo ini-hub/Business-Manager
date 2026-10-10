@@ -14,6 +14,7 @@ import { registerContractRoutes } from "./routes/contract.routes";
 import { registerProfileCompletionRoutes } from "./routes/profile-completion.routes";
 import { registerGuarantorRoutes } from "./routes/guarantor.routes";
 import { registerLegalRoutes } from "./routes/legal.routes";
+import { loadAuthUser } from "./lib/shellData";
 import { registerEmailWebhookRoutes } from "./routes/email-webhooks.routes";
 import { registerWhatsAppWebhookRoutes } from "./routes/whatsapp-webhooks.routes";
 import { registerCustomerBookingRoutes } from "./routes/customer-booking.routes";
@@ -60,6 +61,7 @@ import { ProductController } from "./controllers/ProductController";
 import { BookingController } from "./controllers/BookingController";
 import { CreditController } from "./controllers/CreditController";
 import { registerBusinessRoutes } from "./routes/business.routes";
+import { registerBootstrapRoutes } from "./routes/bootstrap.routes";
 import { registerCustomerRoutes } from "./routes/customer.routes";
 import { registerStaffRoutes } from "./routes/staff.routes";
 import { registerHrRoutes } from "./routes/hr.routes";
@@ -1752,54 +1754,10 @@ export async function registerRoutes(
   // Get current user
   app.get("/api/auth/user", async (req: any, res) => {
     try {
-      const userId = req.user?.userId || req.user?.id;
-      if (userId) {
-        const user = await storage.getUser(userId);
-        if (user) {
-          const orgId = req.user.organisationId || user.businessId;
-          let business = null;
-          let activeRole = user.role;
-          let ownStaffRecord = null;
-
-          if (orgId) {
-            // Parallelize business + member + staff lookups instead of sequential
-            const [fetchedBusiness, member, staffRecord] = await Promise.all([
-              storage.getBusinessById(orgId),
-              storage.getOrganisationMember(user.id, orgId),
-              storage.getStaffByUserId(user.id),
-            ]);
-            business = fetchedBusiness;
-            ownStaffRecord = staffRecord;
-            if (member) {
-              activeRole = member.role;
-            }
-          } else {
-            // Even if no org, fetch staff record in parallel
-            ownStaffRecord = await storage.getStaffByUserId(user.id);
-          }
-
-          auditLogger.logAuthAttempt(user.id, getClientIp(req), true);
-          return res.json({
-            ...user,
-            id: user.id,
-            email: user.email || user.phone || "",
-            role: activeRole,
-            businessId: orgId,
-            business,
-            staffId: ownStaffRecord?.id ?? null,
-            impersonating: req.user.impersonatedBy ? true : undefined,
-            password: undefined,
-            passwordHash: undefined,
-            otpCode: undefined,
-            otpExpiry: undefined,
-            activationCode: undefined,
-            activationCodeExpiry: undefined,
-            pendingEmailOtp: undefined,
-            pendingEmailOtpExpiry: undefined,
-            pendingPhoneOtp: undefined,
-            pendingPhoneOtpExpiry: undefined,
-          });
-        }
+      const payload = await loadAuthUser(req);
+      if (payload) {
+        auditLogger.logAuthAttempt(payload.id as string, getClientIp(req), true);
+        return res.json(payload);
       }
 
       res.status(401).json({ message: "Not authenticated" });
@@ -1907,6 +1865,7 @@ export async function registerRoutes(
   registerWhatsAppNumberRoutes(app, routeMiddlewares);
   registerWhatsAppTemplateRoutes(app, routeMiddlewares);
   registerBusinessRoutes(app, routeMiddlewares);
+  registerBootstrapRoutes(app, routeMiddlewares);
   registerCustomerRoutes(app, routeMiddlewares);
   registerStaffRoutes(app, routeMiddlewares);
   registerHrRoutes(app, routeMiddlewares);

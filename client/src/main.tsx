@@ -2,6 +2,8 @@ import { createRoot } from "react-dom/client";
 import { z } from "zod";
 import * as Sentry from "@sentry/react";
 import App from "./App";
+import { queryClient, startBootstrap } from "./lib/queryClient";
+import { enableShellCachePersistence, hasStoredShellCache } from "./lib/persistShellCache";
 import "./index.css";
 
 if (import.meta.env.VITE_SENTRY_DSN) {
@@ -61,6 +63,10 @@ document.addEventListener("wheel", () => {
     document.activeElement.blur();
   }
 }, { passive: true });
+
+// A returning visitor: ask for the whole shell in one request while the bundle is still booting.
+if (hasStoredShellCache()) startBootstrap();
+enableShellCachePersistence(queryClient);
 
 createRoot(document.getElementById("root")!).render(<App />);
 

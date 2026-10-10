@@ -183,14 +183,6 @@ function softLockedFrom(life: Lifecycle): boolean {
   return life?.state === "soft_locked" && !!life.org.graceEndsAt;
 }
 
-async function isOrgCurrentlyTrialing(organisationId: string): Promise<boolean> {
-  return trialingFrom(await loadLifecycle(db, organisationId));
-}
-
-async function isRenewalSoftLocked(organisationId: string): Promise<boolean> {
-  return softLockedFrom(await loadLifecycle(db, organisationId));
-}
-
 async function loadActiveEntitlementRows(organisationId: string) {
   return db
     .select({ featureId: orgFeatureEntitlements.featureId, status: orgFeatureEntitlements.status, removalEffectiveAt: orgFeatureEntitlements.removalEffectiveAt })
@@ -252,14 +244,24 @@ export function computePurchasedGrant(
   return applyDependencies(granted);
 }
 
-export async function getOrgEntitlements(organisationId: string): Promise<Set<string>> {
+/** Per-org rows a caller that needs several views of one org (GET /api/entitlements) can load once and share. */
+export type OrgEntitlementInputs = {
+  life?: Lifecycle;
+  rows?: Awaited<ReturnType<typeof loadActiveEntitlementRows>>;
+};
+
+export function loadOrgEntitlementInputs(organisationId: string): Promise<Required<OrgEntitlementInputs>> {
+  return Promise.all([loadLifecycle(db, organisationId), loadActiveEntitlementRows(organisationId)]).then(([life, rows]) => ({ life, rows }));
+}
+
+export async function getOrgEntitlements(organisationId: string, inputs: OrgEntitlementInputs = {}): Promise<Set<string>> {
   sweepExpiredEntitlements(organisationId);
 
   const [catalog, disabledFlags, loadedRows, life] = await Promise.all([
     loadCatalog(),
     loadDisabledFlagKeys(db, organisationId),
-    loadActiveEntitlementRows(organisationId),
-    loadLifecycle(db, organisationId), // once: trialing and soft-locked are both read off the same row
+    inputs.rows ?? loadActiveEntitlementRows(organisationId),
+    inputs.life !== undefined ? inputs.life : loadLifecycle(db, organisationId), // once: trialing and soft-locked read the same row
   ]);
   const trialing = trialingFrom(life);
   const renewalLocked = softLockedFrom(life);
@@ -285,11 +287,11 @@ export async function getOrgEntitlements(organisationId: string): Promise<Set<st
  * "active because you're trialing" apart from "active because you paid",
  * and only offer Remove / hide the buy checkbox for the latter.
  */
-export async function getOrgPurchasedFeatures(organisationId: string): Promise<Set<string>> {
+export async function getOrgPurchasedFeatures(organisationId: string, inputs: OrgEntitlementInputs = {}): Promise<Set<string>> {
   const [catalog, disabledFlags, activeRows] = await Promise.all([
     loadCatalog(),
     loadDisabledFlagKeys(db, organisationId),
-    loadActiveEntitlementRows(organisationId),
+    inputs.rows ?? loadActiveEntitlementRows(organisationId),
   ]);
   return computePurchasedGrant(catalog, activeRows, disabledFlags);
 }
@@ -387,8 +389,8 @@ export async function ensureFeatureOrReply(
  * (visible, unpaid) feature costs.
  */
 /** Trial/grace/soft-lock state for the banner and usage meters. */
-export async function getOrgLifecycleView(organisationId: string): Promise<{ state: string; graceEndsAt: string | null; trialEndsAt: string | null; graceDays: number }> {
-  const life = await loadLifecycle(db, organisationId);
+export async function getOrgLifecycleView(organisationId: string, knownLife?: Lifecycle): Promise<{ state: string; graceEndsAt: string | null; trialEndsAt: string | null; graceDays: number }> {
+  const life = knownLife !== undefined ? knownLife : await loadLifecycle(db, organisationId);
   const graceDays = await getConfiguredGraceDays();
   if (!life) return { state: "ok", graceEndsAt: null, trialEndsAt: null, graceDays };
   return { state: life.state, graceEndsAt: life.graceEndsAt?.toISOString() ?? null, trialEndsAt: life.org.trialEndsAt ? new Date(life.org.trialEndsAt).toISOString() : null, graceDays };
@@ -404,11 +406,15 @@ export function getRequestDisabledFeatures(res: { locals: Record<string, any> },
   return res.locals.__orgDisabledFeatures;
 }
 
-export async function getOrgFeatureView(organisationId: string): Promise<{ disabled: string[]; prices: Record<string, FeaturePrice> }> {
+export async function getOrgFeatureView(
+  organisationId: string,
+  /** Pass the set the caller already resolved to skip recomputing it. */
+  knownGranted?: Set<string>,
+): Promise<{ disabled: string[]; prices: Record<string, FeaturePrice> }> {
   const [catalog, flagOff, granted] = await Promise.all([
     loadAllCatalog(),
     loadDisabledFlagKeys(db, organisationId),
-    getOrgEntitlements(organisationId),
+    knownGranted ?? getOrgEntitlements(organisationId),
   ]);
   const disabled = computeDisabledKeys(catalog, flagOff);
   const prices: Record<string, FeaturePrice> = {};
@@ -538,6 +544,12 @@ export async function staffUsedByStore(conn: CountConn, organisationId: string):
 
 /** Every limit tier in the catalog (built-in and admin-created), for the tier-capacity logic in shared/features.ts. */
 export async function loadLimitTiers(conn: DbOrTx | Tx = db): Promise<LimitTier[]> {
+  // The platform catalog is already cached; only transactional callers need a fresh, same-snapshot read.
+  if (conn === db) {
+    return (await loadAllCatalog())
+      .filter((f) => f.tierType === "paid_metered_limit")
+      .map((f) => ({ key: f.key, tierType: f.tierType, limitType: f.limitType, tierCapacity: f.tierCapacity }));
+  }
   const rows = await conn
     .select({ key: featureCatalog.key, tierType: featureCatalog.tierType, limitType: featureCatalog.limitType, tierCapacity: featureCatalog.tierCapacity })
     .from(featureCatalog)
@@ -556,23 +568,26 @@ async function loadOwnedTierKeys(conn: DbOrTx | Tx, organisationId: string, limi
 }
 
 async function evaluateCountLimit(
-  tx: Tx,
+  tx: DbOrTx | Tx,
   organisationId: string,
   limitType: CountLimitType,
   storeId?: string
 ): Promise<{ limit: number; used: number; unlimited: boolean; tiered: boolean; trial: boolean }> {
+  // One lifecycle read answers both "trialing" and "soft-locked" (they used to be two reads of the same row).
+  const life = await loadLifecycle(db, organisationId);
   // A trial gets the free amount, not unlimited: the cap is the same as the free tier, and packs bought during it still count.
-  const trial = await isOrgCurrentlyTrialing(organisationId);
+  const trial = trialingFrom(life);
   // Stores are the exception: a trial can open extra branches to try multi-store out (the store form promises
   // "free during your trial"). When it ends, the owner chooses which stores stay active - see choose-active.
   if (trial && limitType === "store_count") return { limit: Infinity, used: 0, unlimited: true, tiered: false, trial: false };
 
-  const [feature] = await tx.select().from(featureCatalog).where(eq(featureCatalog.key, LIMIT_FEATURE_KEY[limitType])).limit(1);
+  // The catalog is platform-wide and cached (admin edits invalidate it); only per-org rows are read per call.
+  const feature = await getFeatureByKey(LIMIT_FEATURE_KEY[limitType]);
   const freeLimit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
 
   // A failed renewal drops the org back to the free tier; otherwise the cap is the biggest tier it owns.
-  const owned = (await isRenewalSoftLocked(organisationId)) ? [] : await loadOwnedTierKeys(tx, organisationId, limitType);
-  const resolved = resolveCountLimit(limitType, freeLimit, owned, await loadLimitTiers(tx));
+  const owned = softLockedFrom(life) ? [] : await loadOwnedTierKeys(tx, organisationId, limitType);
+  const resolved = resolveCountLimit(limitType, freeLimit, owned, await loadLimitTiers());
   if (resolved.unlimited) return { limit: freeLimit, used: 0, unlimited: true, tiered: false, trial: false };
   const limit = resolved.limit;
   const used = await countUsed(tx, organisationId, limitType, storeId);
@@ -613,16 +628,14 @@ export async function checkCountLimit(
   adding = 1,
   storeId?: string
 ): Promise<{ allowed: boolean; limit: number; used: number; tiered: boolean; trial: boolean }> {
-  return db.transaction(async (tx) => {
-    const { limit, used, unlimited, tiered, trial } = await evaluateCountLimit(tx, organisationId, limitType, storeId);
-    if (unlimited) return { allowed: true, limit, used, tiered, trial };
-    return { allowed: used + adding <= limit, limit, used, tiered, trial };
-  });
+  // Read-only, so no transaction: BEGIN/COMMIT were two extra round trips for nothing.
+  const { limit, used, unlimited, tiered, trial } = await evaluateCountLimit(db, organisationId, limitType, storeId);
+  if (unlimited) return { allowed: true, limit, used, tiered, trial };
+  return { allowed: used + adding <= limit, limit, used, tiered, trial };
 }
 
 export async function getFeatureByKey(featureKey: string): Promise<FeatureCatalog | undefined> {
-  const [feature] = await db.select().from(featureCatalog).where(eq(featureCatalog.key, featureKey)).limit(1);
-  return feature;
+  return (await loadAllCatalog()).find((f) => f.key === featureKey);
 }
 
 /**
@@ -774,13 +787,16 @@ export async function getActiveFeaturePricing(
 export async function getCountLimitStatus(
   organisationId: string,
   limitType: CountLimitType,
-  storeId?: string
+  storeId?: string,
+  /** Lifecycle the caller already loaded (see loadOrgEntitlementInputs); saves two reads per limit. */
+  life?: Lifecycle,
 ): Promise<{ limit: number; used: number; unlimited: boolean; tiered: boolean; trial: boolean; usedByStore?: Record<string, number> }> {
   const feature = await getFeatureByKey(LIMIT_FEATURE_KEY[limitType]);
   const freeLimit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
   // Same rule as evaluateCountLimit: a trial gets the free amount; otherwise the cap is the biggest tier owned.
-  const trialing = await isOrgCurrentlyTrialing(organisationId);
-  const owned = (await isRenewalSoftLocked(organisationId)) ? [] : await loadOwnedTierKeys(db, organisationId, limitType);
+  const knownLife = life === undefined ? await loadLifecycle(db, organisationId) : life;
+  const trialing = trialingFrom(knownLife);
+  const owned = softLockedFrom(knownLife) ? [] : await loadOwnedTierKeys(db, organisationId, limitType);
   const resolved = resolveCountLimit(limitType, freeLimit, owned, await loadLimitTiers());
 
   const used = await countUsed(db, organisationId, limitType, storeId);

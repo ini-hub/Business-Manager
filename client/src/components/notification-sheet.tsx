@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAfterFirstPaint } from "@/hooks/useAfterFirstPaint";
 import { useEffect, useRef } from "react";
 import { Bell, Package, Receipt, AlertCircle, Check } from "lucide-react";
 import {
@@ -52,10 +53,11 @@ export function playNotificationSound() {
 export function NotificationSheet() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const afterFirstPaint = useAfterFirstPaint();
 
   const { data: notifications = [] } = useQuery<any[]>({
     queryKey: ["/api/notifications"],
-    enabled: !!user,
+    enabled: !!user && afterFirstPaint,
     refetchInterval: 60000, // 1-min fallback poll; live updates come via the shared WS in useRealtimeSync
   });
 
