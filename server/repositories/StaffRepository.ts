@@ -210,7 +210,9 @@ export class StaffRepository {
   // still want "any one row for this user."
   async getStaffByUserId(userId: string, storeId?: string): Promise<Staff | undefined> {
     const condition = storeId ? and(eq(staff.userId, userId), eq(staff.storeId, storeId)) : eq(staff.userId, userId);
-    const [result] = await db.select().from(staff).where(condition);
+    // A person may hold one staff row per store. With no store given, prefer an active row and
+    // then the oldest, so the answer does not change between requests.
+    const [result] = await db.select().from(staff).where(condition).orderBy(asc(staff.isArchived), asc(staff.createdAt));
     return result;
   }
 

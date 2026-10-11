@@ -117,7 +117,9 @@ export async function saveOfflineCheckout(payload: any, storeId: string): Promis
     // Also the server's replay guard (clientCheckoutId) - stable across every
     // retry of this same queued sale, so a lost-response retry dedupes
     // instead of creating a second sale. See SalesRepository.processCheckout.
-    payload: { ...payload, clientCheckoutId: id },
+    // An id already on the payload (the online attempt that fell back to the
+    // queue) is kept, so the queued retry dedupes against that attempt too.
+    payload: { ...payload, clientCheckoutId: payload?.clientCheckoutId ?? id },
     createdAt: Date.now(),
     sequence: nextSequence(storeId),
     status: "pending",

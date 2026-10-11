@@ -5,6 +5,7 @@ const calculatePayrollForPeriod = vi.fn();
 const getUser = vi.fn();
 const getStores = vi.fn();
 const getStaffByUserId = vi.fn();
+const getAllStaffByUserId = vi.fn();
 
 vi.mock("../storage", () => ({
   storage: {
@@ -13,6 +14,7 @@ vi.mock("../storage", () => ({
     getUser: (...a: unknown[]) => getUser(...a),
     getStores: (...a: unknown[]) => getStores(...a),
     getStaffByUserId: (...a: unknown[]) => getStaffByUserId(...a),
+    getAllStaffByUserId: (...a: unknown[]) => getAllStaffByUserId(...a),
   },
 }));
 vi.mock("../websocket", () => ({ broadcastDataChange: vi.fn() }));
@@ -73,6 +75,7 @@ describe("resolveAccessibleStoreIds", () => {
     getUser.mockReset();
     getStores.mockReset();
     getStaffByUserId.mockReset();
+    getAllStaffByUserId.mockReset();
     getUser.mockResolvedValue({ id: "u1", businessId: "b1" });
     getStores.mockResolvedValue([{ id: "s1" }, { id: "s2" }, { id: "s3" }]);
   });
@@ -93,11 +96,17 @@ describe("resolveAccessibleStoreIds", () => {
     expect(second.storeIds).toEqual(["s1"]); // a new request re-reads (the short cache is off under test)
   });
 
-  it("pins staff to their own store and never reuses another staff member's answer", async () => {
-    getStaffByUserId.mockResolvedValue({ storeId: "s2" });
+  it("limits staff to the stores they hold a staff row in and never reuses another staff member's answer", async () => {
+    getAllStaffByUserId.mockResolvedValue([{ storeId: "s2" }]);
     const staffReq = request({ id: "u1", role: "staff", businessId: "b1" });
     expect((await resolveAccessibleStoreIds(staffReq)).storeIds).toEqual(["s2"]);
-    getStaffByUserId.mockResolvedValue(undefined);
+    getAllStaffByUserId.mockResolvedValue([]);
     expect((await resolveAccessibleStoreIds(request({ id: "u1", role: "staff", businessId: "b1" }))).storeIds).toEqual([]);
+  });
+
+  it("gives staff who work at several stores all of them, but never a store of another business", async () => {
+    getAllStaffByUserId.mockResolvedValue([{ storeId: "s1" }, { storeId: "s3" }, { storeId: "other-business-store" }]);
+    const out = await resolveAccessibleStoreIds(request({ id: "u1", role: "staff", businessId: "b1" }), ["s1", "s2", "s3"]);
+    expect(out).toEqual({ storeIds: ["s1", "s3"], dropped: ["s2"] });
   });
 });

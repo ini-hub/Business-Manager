@@ -22,6 +22,23 @@ interface BalanceSheet {
   assetsByCategory: { category: string; total: number }[];
 }
 
+interface CurrencySheet extends BalanceSheet {
+  currency: string;
+  storeCount: number;
+}
+
+interface StoreSheet extends BalanceSheet {
+  storeId: string;
+  storeName: string;
+  currency: string;
+}
+
+interface ConsolidatedSheet {
+  consolidated: true;
+  currencies: CurrencySheet[];
+  stores: StoreSheet[];
+}
+
 /**
  * "True profitability" view - what the existing P&L (service-profitability.tsx,
  * /reports/profit-loss) leaves out: capital invested, assets owned, liabilities
@@ -29,29 +46,10 @@ interface BalanceSheet {
  * since inception (no period-close), not stored/posted per transaction - see
  * server/services/AccountingService.ts.
  */
-export default function BalanceSheetPage() {
-  const { currentStore } = useStore();
-  const storeCurrency = currentStore?.currency || "NGN";
-  const formatCurrency = (value: number) => formatCurrencyUtil(value, storeCurrency);
-
-  const { data, isLoading } = useQuery<BalanceSheet>({
-    queryKey: ["/api/accounting/balance-sheet", currentStore?.id],
-    queryFn: async () => (await fetch(`/api/accounting/balance-sheet?storeId=${currentStore!.id}`)).json(),
-    enabled: !!currentStore?.id,
-  });
-
+function SheetBody({ data, currency, isLoading }: { data?: BalanceSheet; currency: string; isLoading: boolean }) {
+  const formatCurrency = (value: number) => formatCurrencyUtil(value, currency);
   return (
-    <PageContainer
-      title="Balance Sheet"
-      description="Your true profitability: capital invested, assets, liabilities, and retained earnings carried forward — not just revenue minus expenses."
-      storeRequired
-      currentStore={currentStore}
-      actions={
-        <Link href="/settings/capital-assets">
-          <Button variant="outline" size="sm">Manage Capital & Assets</Button>
-        </Link>
-      }
-    >
+    <>
       <MetricGrid>
         <PolymorphicMetricCard
           title="Total Assets"
@@ -138,6 +136,74 @@ export default function BalanceSheetPage() {
           </CardContent>
         </Card>
       </div>
+    </>
+  );
+}
+
+export default function BalanceSheetPage() {
+  const { currentStore } = useStore();
+  const isAll = currentStore?.id === "all";
+  const storeCurrency = currentStore?.currency || "NGN";
+
+  const { data, isLoading } = useQuery<BalanceSheet | ConsolidatedSheet>({
+    queryKey: ["/api/accounting/balance-sheet", currentStore?.id],
+    queryFn: async () => (await fetch(`/api/accounting/balance-sheet?storeId=${currentStore!.id}`)).json(),
+    enabled: !!currentStore?.id,
+  });
+  const consolidated = isAll && data && "consolidated" in data ? data : undefined;
+
+  return (
+    <PageContainer
+      title="Balance Sheet"
+      description="Your true profitability: capital invested, assets, liabilities, and retained earnings carried forward — not just revenue minus expenses."
+      storeRequired
+      currentStore={currentStore}
+      actions={
+        <Link href="/settings/capital-assets">
+          <Button variant="outline" size="sm">Manage Capital & Assets</Button>
+        </Link>
+      }
+    >
+      {isAll ? (
+        <>
+          {(consolidated?.currencies.length ?? 0) > 1 && (
+            <Card>
+              <CardContent className="p-4 text-sm text-muted-foreground">
+                Your stores use more than one currency, so each currency is totalled separately.
+              </CardContent>
+            </Card>
+          )}
+          {isLoading && <SheetBody currency={storeCurrency} isLoading />}
+          {consolidated?.currencies.map((c) => (
+            <section key={c.currency} className="space-y-4" data-testid={`balance-sheet-${c.currency}`}>
+              <h2 className="text-base font-semibold">
+                {c.currency} · {c.storeCount} {c.storeCount === 1 ? "store" : "stores"}
+              </h2>
+              <SheetBody data={c} currency={c.currency} isLoading={false} />
+            </section>
+          ))}
+          {consolidated && consolidated.stores.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>By store</CardTitle>
+                <CardDescription>Each store's position in its own currency</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                {consolidated.stores.map((s) => (
+                  <div key={s.storeId} className="flex flex-wrap justify-between gap-2" data-testid={`balance-sheet-store-${s.storeId}`}>
+                    <span className="font-medium">{s.storeName}</span>
+                    <span className="font-mono text-muted-foreground">
+                      Assets {formatCurrencyUtil(s.totalAssets, s.currency)} · Liabilities {formatCurrencyUtil(s.totalLiabilities, s.currency)} · Net worth {formatCurrencyUtil(s.netWorth, s.currency)}
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </>
+      ) : (
+        <SheetBody data={data as BalanceSheet | undefined} currency={storeCurrency} isLoading={isLoading} />
+      )}
     </PageContainer>
   );
 }

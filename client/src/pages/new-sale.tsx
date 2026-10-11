@@ -449,7 +449,12 @@ export default function NewSale() {
   });
 
   // Clear the register for the next customer. Used after a completed sale and after parking a draft.
+  // One id per sale in progress. The server dedupes on it, so a retry after a lost response
+  // (or a double tap) cannot create a second sale. Cleared once the sale is done.
+  const checkoutAttemptId = useRef<string | null>(null);
+
   const resetSaleState = () => {
+    checkoutAttemptId.current = null;
     setCart([]);
     setActiveDraftId(null);
     setSelectedCustomer("");
@@ -1180,6 +1185,12 @@ export default function NewSale() {
         }
       }
 
+      if (!checkoutAttemptId.current) {
+        checkoutAttemptId.current = crypto.randomUUID
+          ? crypto.randomUUID()
+          : `sale_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      }
+
       const checkoutPayload = {
         storeId: currentStore?.id,
         bookingId: bookingId || undefined,
@@ -1201,6 +1212,7 @@ export default function NewSale() {
         bookingDepositMethod: freshDepositMethod || undefined,
         balanceCollectedToday: freshBalance,
         pointsRedeemed: freshPointsToRedeem > 0 ? freshPointsToRedeem : undefined,
+        clientCheckoutId: checkoutAttemptId.current,
       };
 
       if (!navigator.onLine) {

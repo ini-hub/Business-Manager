@@ -129,6 +129,12 @@ export async function getUserStores(req: Request): Promise<any[]> {
 // Staff are never cached: their store assignment changes who they may see, and that must apply at once.
 const accessibleStoresCache = createTtlCache<string, string[]>(30_000);
 
+/** The business's stores a staff user may reach: those where they hold a staff row. */
+export function storesForStaff(businessStoreIds: readonly string[], staffStoreIds: readonly string[]): string[] {
+  const held = new Set(staffStoreIds);
+  return businessStoreIds.filter((id) => held.has(id));
+}
+
 async function loadAllowedStoreIds(req: Request): Promise<string[]> {
   const user = (req as any).user;
   const userId = user?.id ?? user?.userId;
@@ -137,11 +143,12 @@ async function loadAllowedStoreIds(req: Request): Promise<string[]> {
     return stores.map((s: any) => s.id as string);
   };
 
-  // Staff are pinned to their own store, matching verifyStoreAccess.
+  // Staff see the stores they have an active staff row in (one row per store they work at),
+  // matching verifyStoreAccess and the store list in loadVisibleStores.
   if (user?.role === "staff") {
     const allowed = await load();
-    const staffRecord = await storage.getStaffByUserId(userId);
-    return staffRecord ? allowed.filter((id) => id === staffRecord.storeId) : [];
+    const rows = userId ? await storage.getAllStaffByUserId(userId) : [];
+    return storesForStaff(allowed, rows.map((r) => r.storeId));
   }
   return userId ? accessibleStoresCache.get(`${userId}:${user?.businessId ?? ""}`, load) : load();
 }

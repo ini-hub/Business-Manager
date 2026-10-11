@@ -19,6 +19,7 @@ import { useState } from "react";
 import { useStore } from "@/lib/store-context";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
+import { isMixedCurrency } from "@shared/currency-groups";
 
 export function StoreSelector() {
   const [open, setOpen] = useState(false);
@@ -103,7 +104,7 @@ export function StoreSelector() {
                   />
                   <Coins className="mr-2 h-4 w-4 text-emerald-500 shrink-0" />
                   <span className="truncate">All Stores (Consolidated)</span>
-                  <span className="ml-auto text-xs text-muted-foreground">GLOBAL</span>
+                  <span className="ml-auto text-xs text-muted-foreground">{isMixedCurrency(stores) ? "MIXED CURRENCY" : "GLOBAL"}</span>
                 </CommandItem>
               )}
               {stores.map((store) => (
