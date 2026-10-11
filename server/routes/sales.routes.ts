@@ -14,7 +14,7 @@ import { eq, inArray } from "drizzle-orm";
 import { auditLogger } from "../audit";
 import { getCheckoutMoneyDetails } from "../lib/checkoutAuditDetails";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, formatZodErrors, checkBusinessAccess, broadcastChange, getAuditContext } from './helpers';
+import { getUserId, formatZodErrors, checkBusinessAccess, broadcastChange, getAuditContext, storesInCurrency } from './helpers';
 import { isOrgTrialing } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
 import { getRequestEntitlements, featureNotPurchasedBody } from "../lib/entitlements";
@@ -77,7 +77,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         if (!(await checkBusinessAccess(businessId, req, res))) return;
 
         // Fetch all stores of this business
-        const stores = await storage.getStores(businessId);
+        const stores = storesInCurrency(await storage.getStores(businessId), req.query.currency);
         if (stores.length === 0) {
           return res.json({
             serviceRevenue: 0,
@@ -224,7 +224,10 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
 
       if (businessId) {
         if (!(await checkBusinessAccess(businessId, req, res))) return;
-        const stores = await storage.getStores(businessId);
+        // A business with several currencies is totalled one currency at a time.
+        const currency = typeof req.query.currency === "string" ? req.query.currency : undefined;
+        const allStores = await storage.getStores(businessId);
+        const stores = storesInCurrency(allStores, currency);
         if (stores.length === 0) {
           return res.json({
             totalCustomers: 0,
@@ -312,6 +315,10 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         }
 
         // De-duplicate customer count across all stores under this business
+        if (currency && stores.length < allStores.length) {
+          consolidated.totalCustomers = validSummaries.reduce((n, s) => n + (s?.totalCustomers || 0), 0);
+          return res.json(consolidated);
+        }
         consolidated.totalCustomers = await cachedReport({ name: "businessCustomerCount", tags: [businessAggregateTag(businessId)], params: { from, to } }, () => storage.getBusinessCustomerCount(businessId, from, to));
 
         return res.json(consolidated);
@@ -340,7 +347,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
 
       if (businessId) {
         if (!(await checkBusinessAccess(businessId, req, res))) return;
-        const stores = await storage.getStores(businessId);
+        const stores = storesInCurrency(await storage.getStores(businessId), req.query.currency);
         if (stores.length === 0) return res.json([]);
 
         const storeTrends = await Promise.all(
@@ -390,7 +397,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
 
       if (businessId) {
         if (!(await checkBusinessAccess(businessId, req, res))) return;
-        const stores = await storage.getStores(businessId);
+        const stores = storesInCurrency(await storage.getStores(businessId), req.query.currency);
         if (stores.length === 0) return res.json([]);
 
         const storeRevenues = await Promise.all(

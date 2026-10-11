@@ -86,7 +86,9 @@ function getPreviousPeriod(preset: DatePreset, from: Date, to: Date): DateRange 
 }
 
 export default function Dashboard() {
-  const { currentStore, business, stores } = useStore();
+  const { currentStore, business, scopedStores: stores } = useStore();
+  const scopeCurrency = currentStore?.id === "all" ? ((currentStore as any).scopeCurrency as string | undefined) : undefined;
+  const currencyParam = scopeCurrency ? `&currency=${scopeCurrency}` : "";
   const { user } = useAuth();
 
   const [location] = useLocation();
@@ -146,9 +148,9 @@ export default function Dashboard() {
   const dateQuerySuffix = deepLinkQuery ? `&${deepLinkQuery.substring(1)}` : "";
 
   const { data: stats, isLoading } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats", currentStore?.id, business?.id, queryString],
+    queryKey: ["/api/dashboard/stats", currentStore?.id, scopeCurrency, business?.id, queryString],
     queryFn: async () => {
-      const param = currentStore?.id === "all" ? `businessId=${business?.id}` : `storeId=${currentStore?.id}`;
+      const param = currentStore?.id === "all" ? `businessId=${business?.id}${currencyParam}` : `storeId=${currentStore?.id}`;
       const res = await fetch(`/api/dashboard/stats?${param}${queryString ? '&' + queryString.substring(1) : ''}`);
       if (!res.ok) throw new Error("Failed to fetch dashboard stats");
       return res.json();
@@ -162,9 +164,9 @@ export default function Dashboard() {
   // Desktop-only comparison stats: same query, shifted to the preceding window
   // (see getPreviousPeriod) — powers the "▲18% vs last period" deltas.
   const { data: prevStats } = useQuery<DashboardStats>({
-    queryKey: ["/api/dashboard/stats", currentStore?.id, business?.id, prevQueryString, "previous"],
+    queryKey: ["/api/dashboard/stats", currentStore?.id, scopeCurrency, business?.id, prevQueryString, "previous"],
     queryFn: async () => {
-      const param = currentStore?.id === "all" ? `businessId=${business?.id}` : `storeId=${currentStore?.id}`;
+      const param = currentStore?.id === "all" ? `businessId=${business?.id}${currencyParam}` : `storeId=${currentStore?.id}`;
       const res = await fetch(`/api/dashboard/stats?${param}${prevQueryString ? '&' + prevQueryString.substring(1) : ''}`);
       if (!res.ok) throw new Error("Failed to fetch previous-period dashboard stats");
       return res.json();
@@ -175,7 +177,7 @@ export default function Dashboard() {
 
   const { isDisabled } = useEntitlements();
   const { data: profitLoss, isLoading: plLoading } = useQuery<ProfitLossWithInventory[]>({
-    queryKey: ["/api/profit-loss", currentStore?.id, business?.id, deepLinkQuery],
+    queryKey: ["/api/profit-loss", currentStore?.id, scopeCurrency, business?.id, deepLinkQuery],
     queryFn: async () => {
       if (currentStore?.id === "all" && business?.id && stores.length > 0) {
         const responses = await Promise.all(
@@ -572,6 +574,7 @@ export default function Dashboard() {
       <SalesTrendChart
         storeId={currentStore?.id === "all" ? undefined : currentStore?.id}
         businessId={currentStore?.id === "all" ? business?.id : undefined}
+        currency={scopeCurrency}
         storeCurrency={storeCurrency}
         queryString={queryString}
         periodLabel={presetLabel[datePreset]}
@@ -840,6 +843,7 @@ export default function Dashboard() {
             <SalesTrendChart
               storeId={currentStore?.id === "all" ? undefined : currentStore?.id}
               businessId={currentStore?.id === "all" ? business?.id : undefined}
+        currency={scopeCurrency}
               storeCurrency={storeCurrency}
               queryString={queryString}
               periodLabel={presetLabel[datePreset]}

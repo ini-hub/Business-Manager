@@ -19,7 +19,7 @@ vi.mock("../storage", () => ({
 }));
 vi.mock("../websocket", () => ({ broadcastDataChange: vi.fn() }));
 
-import { triggerAutoRecalculate, resolveAccessibleStoreIds } from "./helpers";
+import { triggerAutoRecalculate, resolveAccessibleStoreIds, storesInCurrency, storesForStaff } from "./helpers";
 
 const pending = { id: "p1", status: "pending", startDate: "2026-10-01", endDate: "2026-10-31" };
 
@@ -108,5 +108,22 @@ describe("resolveAccessibleStoreIds", () => {
     getAllStaffByUserId.mockResolvedValue([{ storeId: "s1" }, { storeId: "s3" }, { storeId: "other-business-store" }]);
     const out = await resolveAccessibleStoreIds(request({ id: "u1", role: "staff", businessId: "b1" }), ["s1", "s2", "s3"]);
     expect(out).toEqual({ storeIds: ["s1", "s3"], dropped: ["s2"] });
+  });
+});
+
+describe("storesInCurrency", () => {
+  const stores = [{ id: "a", currency: "NGN" }, { id: "b", currency: "GHS" }, { id: "c", currency: "NGN" }];
+  it("keeps only the requested currency", () => {
+    expect(storesInCurrency(stores, "NGN").map((s) => s.id)).toEqual(["a", "c"]);
+  });
+  it("returns every store when no currency is asked for", () => {
+    expect(storesInCurrency(stores, undefined)).toHaveLength(3);
+    expect(storesInCurrency(stores, "")).toHaveLength(3);
+  });
+});
+
+describe("storesForStaff", () => {
+  it("returns the business stores the staff user holds a row in, in business order", () => {
+    expect(storesForStaff(["s1", "s2", "s3"], ["s3", "s1", "x"])).toEqual(["s1", "s3"]);
   });
 });

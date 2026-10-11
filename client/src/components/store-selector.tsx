@@ -82,30 +82,36 @@ export function StoreSelector() {
             <CommandEmpty>No store found.</CommandEmpty>
             <CommandGroup heading="Stores">
               {user?.role === "owner" && stores.length > 1 && (
-                <CommandItem
-                  value="All Stores (Consolidated)"
-                  onSelect={() => {
-                    setCurrentStore({
-                      id: "all",
-                      name: "All Stores (Consolidated)",
-                      currency: stores[0]?.currency || "NGN",
-                      code: "GLOBAL",
-                      businessId: stores[0]?.businessId,
-                    } as any);
-                    setOpen(false);
-                  }}
-                  data-testid="option-store-all"
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      currentStore?.id === "all" ? "opacity-100" : "opacity-0"
-                    )}
-                  />
-                  <Coins className="mr-2 h-4 w-4 text-emerald-500 shrink-0" />
-                  <span className="truncate">All Stores (Consolidated)</span>
-                  <span className="ml-auto text-xs text-muted-foreground">{isMixedCurrency(stores) ? "MIXED CURRENCY" : "GLOBAL"}</span>
-                </CommandItem>
+                // Stores in different currencies are never added together, so a mixed business
+                // gets one "All" view per currency.
+                (isMixedCurrency(stores) ? Array.from(new Set(stores.map((s) => s.currency))) : [null]).map((cur) => {
+                  const selected =
+                    currentStore?.id === "all" && ((currentStore as any).scopeCurrency ?? null) === cur;
+                  const label = cur ? `All ${cur} stores` : "All Stores (Consolidated)";
+                  return (
+                    <CommandItem
+                      key={`all-${cur ?? "any"}`}
+                      value={label}
+                      onSelect={() => {
+                        setCurrentStore({
+                          id: "all",
+                          name: label,
+                          currency: cur ?? (stores[0]?.currency || "NGN"),
+                          scopeCurrency: cur ?? undefined,
+                          code: "GLOBAL",
+                          businessId: stores[0]?.businessId,
+                        } as any);
+                        setOpen(false);
+                      }}
+                      data-testid={cur ? `option-store-all-${cur}` : "option-store-all"}
+                    >
+                      <Check className={cn("mr-2 h-4 w-4", selected ? "opacity-100" : "opacity-0")} />
+                      <Coins className="mr-2 h-4 w-4 text-emerald-500 shrink-0" />
+                      <span className="truncate">{label}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">{cur ?? "GLOBAL"}</span>
+                    </CommandItem>
+                  );
+                })
               )}
               {stores.map((store) => (
                 <CommandItem

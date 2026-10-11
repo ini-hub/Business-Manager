@@ -129,6 +129,11 @@ export async function getUserStores(req: Request): Promise<any[]> {
 // Staff are never cached: their store assignment changes who they may see, and that must apply at once.
 const accessibleStoresCache = createTtlCache<string, string[]>(30_000);
 
+/** Keeps only the stores in `currency` when one is asked for (a business with several currencies is totalled one at a time). */
+export function storesInCurrency<T extends { currency: string }>(stores: T[], currency: unknown): T[] {
+  return typeof currency === "string" && currency ? stores.filter((s) => s.currency === currency) : stores;
+}
+
 /** The business's stores a staff user may reach: those where they hold a staff row. */
 export function storesForStaff(businessStoreIds: readonly string[], staffStoreIds: readonly string[]): string[] {
   const held = new Set(staffStoreIds);

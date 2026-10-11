@@ -3,10 +3,16 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "./queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import type { Business, Store, InsertBusiness, InsertStore } from "@shared/schema";
+import { isMixedCurrency } from "@shared/currency-groups";
 
 interface StoreContextType {
   business: Business | null;
   stores: Store[];
+  /**
+   * The stores a consolidated ("All") view should add up. Equal to `stores` unless the business
+   * uses more than one currency, in which case it is the stores in the selected currency.
+   */
+  scopedStores: Store[];
   currentStore: Store | null;
   setCurrentStore: (store: Store) => void;
   isLoading: boolean;
@@ -46,12 +52,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (activeStores.length > 0) {
       const savedStoreId = storageKey ? localStorage.getItem(storageKey) : null;
-      // Only use saved store if it actually belongs to this user's active stores or is the special "all" view for owners
-      if (savedStoreId === "all" && user?.role === "owner") {
+      // Only use saved store if it actually belongs to this user's active stores or is the special "all" view for owners.
+      // A business with several currencies has one "all" view per currency, saved as "all:NGN".
+      const mixed = isMixedCurrency(activeStores);
+      const savedAllCurrency = savedStoreId?.startsWith("all:") ? savedStoreId.slice(4) : null;
+      const allViewValid =
+        user?.role === "owner" &&
+        ((savedStoreId === "all" && !mixed) ||
+          (!!savedAllCurrency && mixed && activeStores.some((s) => s.currency === savedAllCurrency)));
+      if (allViewValid) {
+        const currency = savedAllCurrency || activeStores[0]?.currency || "NGN";
         setCurrentStoreState({
           id: "all",
-          name: "All Stores (Consolidated)",
-          currency: activeStores[0]?.currency || "NGN",
+          name: savedAllCurrency ? `All ${currency} stores` : "All Stores (Consolidated)",
+          currency,
+          scopeCurrency: savedAllCurrency || undefined,
           code: "GLOBAL",
           businessId: business?.id,
         } as any);
@@ -64,7 +79,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const setCurrentStore = (store: Store) => {
     setCurrentStoreState(store);
-    if (storageKey) localStorage.setItem(storageKey, store.id);
+    const scopeCurrency = (store as any).scopeCurrency as string | undefined;
+    if (storageKey) localStorage.setItem(storageKey, store.id === "all" && scopeCurrency ? `all:${scopeCurrency}` : store.id);
     queryClient.invalidateQueries();
   };
 
@@ -147,9 +163,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const scopeCurrency = currentStore?.id === "all" ? ((currentStore as any).scopeCurrency as string | undefined) : undefined;
+  const scopedStores = useMemo(
+    () => (scopeCurrency ? stores.filter((s) => s.currency === scopeCurrency) : stores),
+    [stores, scopeCurrency],
+  );
+
   const value: StoreContextType = {
     business: business || null,
     stores,
+    scopedStores,
     currentStore,
     setCurrentStore,
     isLoading: businessLoading || storesLoading,

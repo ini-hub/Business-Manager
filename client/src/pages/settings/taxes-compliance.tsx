@@ -59,9 +59,9 @@ export default function TaxesCompliancePage() {
 
   // VAT collected per month, summed by the server (store-local months).
   const { data: vatReport, isLoading: isLoadingTransactions } = useQuery<{ months: { month: string; taxableSales: number; vatCollected: number; count: number }[] }>({
-    queryKey: ["/api/reports/vat-monthly", currentStore?.id],
+    queryKey: ["/api/reports/vat-monthly", currentStore?.id, (currentStore as any)?.scopeCurrency],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/reports/vat-monthly?storeId=${currentStore?.id}`);
+      const res = await apiRequest("GET", `/api/reports/vat-monthly?storeId=${currentStore?.id}${(currentStore as any)?.scopeCurrency ? `&currency=${(currentStore as any).scopeCurrency}` : ""}`);
       return res.json();
     },
     enabled: !!currentStore?.id,

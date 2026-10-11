@@ -16,7 +16,7 @@ import { formatCurrencyCompact } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 
 export default function RegisterShifts() {
-  const { currentStore, stores, business } = useStore();
+  const { currentStore, scopedStores: stores, business } = useStore();
   const figuresMasked = !!(business as any)?.viewerMask?.figures;
   const storeCurrency = currentStore?.currency || "NGN";
 

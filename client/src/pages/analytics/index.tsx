@@ -56,7 +56,7 @@ const DEFAULT_MEASURES = ["sales.net_revenue", "sales.gross_profit"];
 const iso = (d: Date) => format(d, "yyyy-MM-dd");
 
 export default function AnalyticsExplorerPage() {
-  const { currentStore, stores, business } = useStore();
+  const { currentStore, stores, scopedStores, business } = useStore();
   const { data: model, isLoading: modelLoading, error: modelError } = useAnalyticsModel();
 
   const [dateRange, setDateRange] = usePersistedDateRange<DateRange>(
@@ -90,8 +90,13 @@ export default function AnalyticsExplorerPage() {
   const storeIds = useMemo(() => {
     if (!model) return [];
     if (currentStore && currentStore.id !== "all") return [currentStore.id];
+    // A business with several currencies has one "All" view per currency, so money is never added across them.
+    if (currentStore && (currentStore as any).scopeCurrency) {
+      const inScope = new Set(scopedStores.map((s) => s.id));
+      return model.storeIds.filter((id) => inScope.has(id));
+    }
     return model.storeIds;
-  }, [model, currentStore]);
+  }, [model, currentStore, scopedStores]);
 
   const queryBody: AnalyticsQueryInput | null = useMemo(() => {
     if (!model || storeIds.length === 0 || measures.length === 0) return null;

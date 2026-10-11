@@ -41,7 +41,7 @@ interface SummaryBucket {
 }
 
 export function BookingCalendarView() {
-  const { currentStore, stores } = useStore();
+  const { currentStore, scopedStores: stores } = useStore();
   const [, setLocation] = useLocation();
   const [period, setPeriod] = useState<CalendarPeriod>("month");
   const [anchorDate, setAnchorDate] = useState(new Date());

@@ -47,7 +47,7 @@ type POWithVendor = PurchaseOrder & { vendor?: Vendor; vendorName?: string; poNu
 
 export default function PurchaseOrdersPage() {
   const [, setLocation] = useLocation();
-  const { currentStore, stores } = useStore();
+  const { currentStore, scopedStores: stores } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
   const storeCurrency = currentStore?.currency || "NGN";

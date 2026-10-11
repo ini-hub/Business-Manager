@@ -12,7 +12,7 @@ import { attendanceService } from "../services/AttendanceService";
 import { auditLogger } from "../audit";
 import { bulkUploadService } from "../services/BulkUploadService";
 import { payrollPostingService } from "../services/PayrollPostingService";
-import { getUserId, getAuditContext, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, triggerAutoRecalculate, broadcastChange } from './helpers';
+import { getUserId, getAuditContext, getUserStores, resolveAccessibleStoreIds, verifyStoreAccess, triggerAutoRecalculate, broadcastChange, storesInCurrency } from './helpers';
 import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
@@ -114,7 +114,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       if (!storeId) return res.status(400).json({ error: "Please select a store first." });
 
       if (storeId === "all") {
-        const stores = await getUserStores(req);
+        const stores = storesInCurrency(await getUserStores(req), req.query.currency);
         if (stores.length === 0) return res.json([]);
 
         const responses = await Promise.all(
@@ -895,7 +895,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (storeId === "all") {
-        const stores = await getUserStores(req);
+        const stores = storesInCurrency(await getUserStores(req), req.query.currency);
         const merged = new Map<string, { month: string; taxableSales: number; vatCollected: number; count: number }>();
         for (const list of await Promise.all(stores.map(s => getVatByMonth(s.id)))) {
           for (const m of list) {

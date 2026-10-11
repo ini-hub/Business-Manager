@@ -43,7 +43,7 @@ import { SaleFiltersSheet, SaleSortSheet, saleSortButtonLabel } from "@/componen
 const PAGE_LIMIT = 50;
 
 export default function Transactions() {
-  const { currentStore, stores, business } = useStore();
+  const { currentStore, scopedStores: stores, business } = useStore();
   const figuresMasked = !!(business as any)?.viewerMask?.figures;
   const [location, setLocation] = useLocation();
   const search = useSearch();

@@ -21,6 +21,8 @@ interface SalesTrendData {
 interface ChartProps {
   storeId?: string;
   businessId?: string;
+  /** Totals one currency at a time when a business has stores in several. */
+  currency?: string;
   storeCurrency?: string;
   queryString?: string;
   /** Overrides the "(Last 30 Days)" suffix to reflect an actual applied filter, e.g. "This Month". */
@@ -41,12 +43,12 @@ function formatShortDate(dateStr: string) {
   }).format(date);
 }
 
-export function SalesTrendChart({ storeId, businessId, storeCurrency = "NGN", queryString = "", periodLabel = "Last 30 Days", headerRight }: ChartProps) {
+export function SalesTrendChart({ storeId, businessId, currency, storeCurrency = "NGN", queryString = "", periodLabel = "Last 30 Days", headerRight }: ChartProps) {
   const formatCurrency = createFormatCurrency(storeCurrency);
   const { data: trends = [], isLoading } = useQuery<SalesTrendData[]>({
-    queryKey: ["/api/charts/sales-trends", storeId, businessId, queryString],
+    queryKey: ["/api/charts/sales-trends", storeId, businessId, currency, queryString],
     queryFn: async () => {
-      const param = businessId ? `businessId=${businessId}` : `storeId=${storeId}`;
+      const param = businessId ? `businessId=${businessId}${currency ? `&currency=${currency}` : ""}` : `storeId=${storeId}`;
       const res = await fetch(`/api/charts/sales-trends?${param}${queryString ? '&' + queryString.substring(1) : ''}`);
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
