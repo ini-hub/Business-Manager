@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/react";
 import App from "./App";
 import { queryClient, startBootstrap } from "./lib/queryClient";
 import { enableShellCachePersistence, hasStoredShellCache } from "./lib/persistShellCache";
+import { getScopeCurrency, SCOPE_CURRENCY_HEADER } from "./lib/scopeCurrency";
 import "./index.css";
 
 if (import.meta.env.VITE_SENTRY_DSN) {
@@ -37,6 +38,23 @@ window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
         init = init || {};
         const headers = new Headers(init.headers);
         headers.set("x-csrf-token", csrfToken);
+        init.headers = headers;
+      }
+    }
+  }
+
+  // Consolidated views are scoped to one currency; tell the server on every same-origin API call.
+  const scope = getScopeCurrency();
+  if (scope) {
+    const url = input instanceof Request ? input.url : String(input);
+    const isApi = url.startsWith("/api/") || url.startsWith(`${window.location.origin}/api/`);
+    if (isApi) {
+      if (input instanceof Request) {
+        input.headers.set(SCOPE_CURRENCY_HEADER, scope);
+      } else {
+        init = init || {};
+        const headers = new Headers(init.headers);
+        headers.set(SCOPE_CURRENCY_HEADER, scope);
         init.headers = headers;
       }
     }

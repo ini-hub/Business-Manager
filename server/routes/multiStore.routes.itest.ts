@@ -22,10 +22,10 @@ let server: http.Server;
 let base = "";
 const extraStores: string[] = [];
 
-async function api(method: string, path: string, token: string, body?: unknown) {
+async function api(method: string, path: string, token: string, body?: unknown, extraHeaders: Record<string, string> = {}) {
   const res = await fetch(`${base}${path}`, {
     method,
-    headers: { "Content-Type": "application/json", Cookie: `jwt_token=${token}` },
+    headers: { "Content-Type": "application/json", Cookie: `jwt_token=${token}`, ...extraHeaders },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -67,6 +67,9 @@ beforeAll(async () => {
 
 afterEach(async () => {
   for (const id of extraStores.splice(0)) {
+    await db.execute(sql`DELETE FROM stock_movements WHERE store_id = ${id}`);
+    await db.execute(sql`DELETE FROM inventory WHERE store_id = ${id}`);
+    await db.execute(sql`DELETE FROM products WHERE store_id = ${id}`);
     await db.execute(sql`DELETE FROM staff WHERE store_id = ${id}`);
     await db.execute(sql`DELETE FROM store_counters WHERE store_id = ${id}`);
     await db.execute(sql`DELETE FROM stores WHERE id = ${id}`);
@@ -136,5 +139,31 @@ describe("staff who work at several stores", () => {
     });
     const after = await api("GET", "/api/accounting/balance-sheet?storeId=all", staffToken);
     expect(after.body.stores.map((s: any) => s.storeId).sort()).toEqual([A.f.storeId, ghs.id].sort());
+  });
+});
+
+describe("consolidated lists are scoped to the requested currency", () => {
+  const names = (body: any) => (body?.data ?? body ?? []).map((p: any) => p.name).sort();
+
+  it("returns only the stores of that currency for storeId=all, and everything without a scope", async () => {
+    const { A, ghs, owner } = await mixedBusiness();
+    await kit.addProduct(A.f.storeId, "Naira widget", 5, 100);
+    await kit.addProduct(ghs.id, "Cedi widget", 5, 10);
+
+    const unscoped = await api("GET", "/api/products?storeId=all", owner);
+    expect(unscoped.status).toBe(200);
+    expect(names(unscoped.body)).toEqual(["Cedi widget", "Naira widget"]);
+
+    const ngn = await api("GET", "/api/products?storeId=all", owner, undefined, { "x-scope-currency": "NGN" });
+    expect(names(ngn.body)).toEqual(["Naira widget"]);
+
+    const cedi = await api("GET", "/api/products?storeId=all", owner, undefined, { "x-scope-currency": "GHS" });
+    expect(names(cedi.body)).toEqual(["Cedi widget"]);
+  });
+
+  it("applies the scope to the business-wide dashboard totals too", async () => {
+    const { A, owner } = await mixedBusiness();
+    const ghs = await api("GET", `/api/dashboard/stats?businessId=${A.f.businessId}`, owner, undefined, { "x-scope-currency": "GHS" });
+    expect(ghs.body.totalStaff).toBe(2);
   });
 });

@@ -105,6 +105,18 @@ export async function checkBusinessAccess(businessId: string, req: Request, res:
   return true;
 }
 
+/**
+ * The currency a consolidated ("All stores") request is scoped to, if any. A business with stores in
+ * several currencies has one All view per currency; the client sends it as `x-scope-currency` on every
+ * request (and some endpoints also take `?currency=`). Money is never added across currencies, so every
+ * route that resolves "all stores" goes through getUserStores and gets only that currency's stores.
+ */
+export function requestedCurrency(req: Request): string | undefined {
+  const raw = req.headers?.["x-scope-currency"] ?? (req.query as any)?.currency;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" && /^[A-Za-z]{3}$/.test(value) ? value.toUpperCase() : undefined;
+}
+
 export async function getUserStores(req: Request): Promise<any[]> {
   const userId = (req as any).user?.userId || (req as any).user?.id;
   if (!userId) return [];
@@ -114,7 +126,7 @@ export async function getUserStores(req: Request): Promise<any[]> {
   // (a person who belongs to several businesses has one session per business).
   const businessId = (req as any).user?.businessId || user.businessId;
   if (!businessId) return [];
-  return await storage.getStores(businessId);
+  return storesInCurrency(await storage.getStores(businessId), requestedCurrency(req));
 }
 
 /**
@@ -159,7 +171,7 @@ async function loadAllowedStoreIds(req: Request): Promise<string[]> {
     const rows = userId ? await storage.getAllStaffByUserId(userId) : [];
     return storesForStaff(allowed, rows.map((r) => r.storeId));
   }
-  return userId ? accessibleStoresCache.get(`${userId}:${user?.businessId ?? ""}`, load) : load();
+  return userId ? accessibleStoresCache.get(`${userId}:${user?.businessId ?? ""}:${requestedCurrency(req) ?? ""}`, load) : load();
 }
 
 export async function resolveAccessibleStoreIds(
