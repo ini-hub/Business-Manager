@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { useStore } from "@/lib/store-context";
 import type { Inventory } from "@shared/schema";
 import { BookingFormValues } from "./types";
+import { formatAmount, getCurrencySymbol } from "@/lib/currency-utils";
 
 interface StepItemsProps {
   form: UseFormReturn<BookingFormValues>;
@@ -26,6 +27,8 @@ interface StepItemsProps {
 
 export function StepItems({ form }: StepItemsProps) {
   const { currentStore } = useStore();
+  const money = (n: number) => formatAmount(n, currentStore?.currency || "NGN");
+  const currencySym = getCurrencySymbol(currentStore?.currency || "NGN");
 
   const { fields, append, remove } = useFieldArray({
     name: "bookingItems",
@@ -139,7 +142,7 @@ export function StepItems({ form }: StepItemsProps) {
                   name={`bookingItems.${index}.unitPrice`}
                   render={({ field: inputField }) => (
                     <FormItem>
-                      <FormLabel>Price (₦)</FormLabel>
+                      <FormLabel>Price ({currencySym})</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
@@ -164,7 +167,7 @@ export function StepItems({ form }: StepItemsProps) {
               <div className="text-right text-sm text-muted-foreground">
                 Line total:{" "}
                 <span className="font-semibold text-foreground">
-                  ₦{(Number(watchItems[index]?.quantity || 0) * Number(watchItems[index]?.unitPrice || 0)).toLocaleString()}
+                  {money((Number(watchItems[index]?.quantity || 0) * Number(watchItems[index]?.unitPrice || 0)))}
                 </span>
               </div>
             </div>
@@ -187,7 +190,7 @@ export function StepItems({ form }: StepItemsProps) {
               <Separator />
               <div className="flex justify-between items-center font-medium">
                 <span className="text-muted-foreground">Subtotal</span>
-                <span className="text-lg">₦{subtotal.toLocaleString()}</span>
+                <span className="text-lg">{money(subtotal)}</span>
               </div>
             </>
           )}

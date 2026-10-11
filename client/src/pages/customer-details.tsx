@@ -25,7 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { formatCurrencyCompact } from "@/lib/currency-utils";
+import { formatCurrencyCompact, formatAmount } from "@/lib/currency-utils";
 import { useStore } from "@/lib/store-context";
 import { formatPhoneDisplay } from "@/lib/phone-utils";
 import { normalizePhoneForStorage } from "@shared/phone-utils";
@@ -75,6 +75,7 @@ export default function CustomerDetails({ view = "overview" }: { view?: "overvie
   const match = matchOverview || matchLogs;
   const params = overviewParams ?? logsParams;
   const { currentStore } = useStore();
+  const money = (n: number) => formatAmount(n, currentStore?.currency || "NGN");
   const customerId = params?.id;
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -419,7 +420,7 @@ export default function CustomerDetails({ view = "overview" }: { view?: "overvie
         <div className="flex flex-col items-end gap-1 shrink-0">
         {Number(customer.storeCreditBalance) > 0 && (
           <Badge variant="outline" className="border-sky-500 text-sky-600 bg-sky-500/5" data-testid="badge-store-credit">
-            Store credit owed: ₦{Number(customer.storeCreditBalance).toLocaleString()}
+            Store credit owed: {money(Number(customer.storeCreditBalance))}
           </Badge>
         )}
         <Badge
@@ -692,13 +693,13 @@ export default function CustomerDetails({ view = "overview" }: { view?: "overvie
                                   </div>
                                 </TableCell>
                                 <TableCell className="text-right font-medium text-xs">
-                                  ₦{entry.amountOwed.toLocaleString()}
+                                  {money(entry.amountOwed)}
                                 </TableCell>
                                 <TableCell className="text-right font-medium text-xs text-emerald-600">
-                                  ₦{(entry.amountPaidUpfront + (entry.totalRepayments || 0)).toLocaleString()}
+                                  {money((entry.amountPaidUpfront + (entry.totalRepayments || 0)))}
                                 </TableCell>
                                 <TableCell className="text-right font-bold text-xs text-amber-500">
-                                  ₦{entry.outstandingBalance.toLocaleString()}
+                                  {money(entry.outstandingBalance)}
                                 </TableCell>
                                 <TableCell className="text-xs">
                                   {entry.dueDate ? (

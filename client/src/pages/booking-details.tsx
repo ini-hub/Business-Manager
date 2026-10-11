@@ -61,6 +61,8 @@ import { EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { buildSlug } from "@/lib/slug";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useStore } from "@/lib/store-context";
+import { formatAmount } from "@/lib/currency-utils";
 
 const safeFormat = (dateValue: any, formatStr: string) => {
   if (!dateValue) return "N/A";
@@ -74,6 +76,8 @@ const safeFormat = (dateValue: any, formatStr: string) => {
 };
 
 export default function BookingDetailsPage() {
+  const { currentStore } = useStore();
+  const money = (n: number) => formatAmount(n, currentStore?.currency || "NGN");
   const { id } = useParams();
   const [, setLocation] = useLocation();
   const { backHref } = useReturnTo("/bookings");
@@ -393,26 +397,26 @@ export default function BookingDetailsPage() {
                           )}
                         </div>
                         <div className="col-span-2 text-center">{item.quantity}</div>
-                        <div className="col-span-2 text-right">₦{item.unitPrice?.toLocaleString()}</div>
-                        <div className="col-span-2 text-right font-semibold">₦{item.totalPrice?.toLocaleString()}</div>
+                        <div className="col-span-2 text-right">{money(item.unitPrice ?? 0)}</div>
+                        <div className="col-span-2 text-right font-semibold">{money(item.totalPrice ?? 0)}</div>
                       </div>
                     ))}
                   </div>
                   <div className="p-4 bg-muted/10 space-y-2 border-t text-sm">
                     <div className="flex justify-between items-center text-muted-foreground">
                       <p>Subtotal:</p>
-                      <p>₦{(booking.subtotal || booking.items?.reduce((acc: number, item: any) => acc + item.totalPrice, 0)).toLocaleString()}</p>
+                      <p>{money((booking.subtotal || booking.items?.reduce((acc: number, item: any) => acc + item.totalPrice, 0)))}</p>
                     </div>
                     {booking.discountAmount > 0 && (
                       <div className="flex justify-between items-center text-green-600">
                         <p>Discount {booking.discountPercent > 0 ? `(${booking.discountPercent}%)` : ""}:</p>
-                        <p>-₦{booking.discountAmount.toLocaleString()}</p>
+                        <p>-{money(booking.discountAmount)}</p>
                       </div>
                     )}
                     <div className="flex justify-between items-center pt-2 border-t">
                       <p className="font-medium">Total Price:</p>
                       <p className="text-lg font-bold">
-                        ₦{(booking.totalPrice || booking.items?.reduce((acc: number, item: any) => acc + item.totalPrice, 0)).toLocaleString()}
+                        {money((booking.totalPrice || booking.items?.reduce((acc: number, item: any) => acc + item.totalPrice, 0)))}
                       </p>
                     </div>
                   </div>
@@ -512,7 +516,7 @@ export default function BookingDetailsPage() {
             <CardContent className="space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">Deposit Paid</span>
-                <span className="font-semibold text-green-600">₦{booking.depositAmount?.toLocaleString() || 0}</span>
+                <span className="font-semibold text-green-600">{money(booking.depositAmount || 0)}</span>
               </div>
               {booking.depositAmount > 0 && (
                 <div className="flex justify-between items-center">
