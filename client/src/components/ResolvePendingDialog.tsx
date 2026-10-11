@@ -29,6 +29,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getCurrencySymbol } from "@/lib/currency-utils";
 
 export interface ResolvePendingDialogProps {
   open: boolean;
@@ -282,7 +283,7 @@ export function ResolvePendingDialog({
                 </Label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-mono">
-                    {storeCurrency === "USD" ? "$" : "₦"}
+                    {getCurrencySymbol(storeCurrency)}
                   </span>
                   <Input
                     type="number"
