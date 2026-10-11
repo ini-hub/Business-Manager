@@ -109,8 +109,12 @@ export async function getUserStores(req: Request): Promise<any[]> {
   const userId = (req as any).user?.userId || (req as any).user?.id;
   if (!userId) return [];
   const user = await storage.getUser(userId);
-  if (!user || !user.businessId) return [];
-  return await storage.getStores(user.businessId);
+  if (!user) return [];
+  // The active business is the one on the session; the user record's own business is only a fallback
+  // (a person who belongs to several businesses has one session per business).
+  const businessId = (req as any).user?.businessId || user.businessId;
+  if (!businessId) return [];
+  return await storage.getStores(businessId);
 }
 
 /**
