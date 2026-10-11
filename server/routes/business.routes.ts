@@ -1,7 +1,6 @@
 import { parsePage, paginated } from "../lib/pagination";
 import type { Express, Request, Response } from "express";
 import { planStoreChoice } from "../lib/storeChoice";
-import { findCurrencyConflict, currencyConflictMessage } from "../lib/storeCurrency";
 import { requireCustomerSpendAccess } from "../lib/transactionAccess";
 import { getMaskPolicy, maskCustomer, maskCustomerPhone, isPhoneLikeQuery } from "../lib/dataMasking";
 import { invalidateStoreTimezone } from "../lib/dateUtils";
@@ -456,13 +455,7 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         return res.status(400).json({ error: `Store Creation Failed: A store with code "${data.code}" already exists.` });
       }
 
-      const existingStores = await storage.getStores(userBusinessId);
-      const currencyConflict = findCurrencyConflict(existingStores, data.currency);
-      if (currencyConflict) {
-        return res.status(400).json({ error: currencyConflictMessage(currencyConflict, data.currency) });
-      }
-
-      const isMain = existingStores.length === 0;
+      const isMain = (await storage.getStores(userBusinessId)).length === 0;
       const store = await storage.createStore({ ...data, isMain });
       await addOwnerAsStaff(store, req);
 
@@ -532,14 +525,6 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
         const existingByCode = await storage.getStoreByCode(existingStore.businessId, data.code);
         if (existingByCode && existingByCode.id !== existingStore.id) {
           return res.status(400).json({ error: `Store Update Failed: A store with code "${data.code}" already exists.` });
-        }
-      }
-
-      if (data.currency && data.currency !== existingStore.currency) {
-        const siblings = await storage.getStores(existingStore.businessId);
-        const currencyConflict = findCurrencyConflict(siblings, data.currency, existingStore.id);
-        if (currencyConflict) {
-          return res.status(400).json({ error: currencyConflictMessage(currencyConflict, data.currency) });
         }
       }
 

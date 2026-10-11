@@ -12,8 +12,8 @@ import { closePool } from "../test-support/integration-db";
 import { partnerTestKit } from "../test-support/partner-fixtures";
 
 /**
- * A business with stores in two currencies, driven through the real router: the currency guard on
- * store edits, the per-currency scope on business-wide totals, the consolidated balance sheet, and a
+ * A business with stores in two currencies, driven through the real router: editing a store's currency,
+ * the per-currency scope on business-wide totals, the consolidated balance sheet, and a
  * staff member who works at both stores.
  */
 
@@ -79,15 +79,12 @@ afterAll(async () => {
   await closePool();
 });
 
-describe("currency guard on store edits", () => {
-  it("rejects moving a store onto a currency no other store uses, and allows matching one", async () => {
+describe("stores in different currencies", () => {
+  it("lets an owner set a store to any currency, so a business can trade in several", async () => {
     const { ghs, owner } = await mixedBusiness();
-    const bad = await api("PATCH", `/api/stores/${ghs.id}`, owner, { currency: "USD" });
-    expect(bad.status).toBe(400);
-    expect(bad.body.error).toMatch(/same currency/i);
-    const ok = await api("PATCH", `/api/stores/${ghs.id}`, owner, { currency: "NGN" });
-    expect(ok.status).toBe(200);
-    expect(ok.body.currency).toBe("NGN");
+    const usd = await api("PATCH", `/api/stores/${ghs.id}`, owner, { currency: "USD" });
+    expect(usd.status).toBe(200);
+    expect(usd.body.currency).toBe("USD");
   });
 });
 
