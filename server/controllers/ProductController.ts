@@ -11,6 +11,7 @@ import { toTitleCase, sanitizeString } from "../sanitize";
 import { broadcastChange, getAuditContext } from "../routes/helpers";
 import { auditLogger } from "../audit";
 import { ensureFeatureOrReply, sendPlanLimitError } from "../lib/entitlements";
+import { requirePermission } from "../lib/permissionGate";
 
 /** Quick-pick strip defaults. 30 days keeps the ranking current enough to follow
  *  a seasonal swing without a slow week emptying the strip. */
@@ -31,17 +32,12 @@ export class ProductController extends BaseController {
     // Before /products/:id, or the slug resolver swallows "top-sellers" as an id.
     router.get("/products/top-sellers", isAuthenticated, this.getTopSellers.bind(this));
     router.get("/products/:id", isAuthenticated, withProductId, this.getProduct.bind(this));
-    router.post("/products", isAuthenticated, this.createProduct.bind(this));
-    router.patch("/products/:id", isAuthenticated, withProductId, this.updateProduct.bind(this));
-    router.delete("/products/:id", isAuthenticated, withProductId, this.deleteProduct.bind(this));
-    router.post("/products/:id/variants", isAuthenticated, withProductId, this.createVariant.bind(this));
-    router.post("/products/:id/restore", isAuthenticated, withProductId, this.restoreProduct.bind(this));
-    router.delete("/products/:id/permanent", isAuthenticated, withProductId, this.permanentDeleteProduct.bind(this));
-  }
-
-  private isManagerOrOwner(req: Request): boolean {
-    const role = (req as any).user?.role;
-    return role === "owner" || role === "manager";
+    router.post("/products", isAuthenticated, requirePermission("/inventory"), this.createProduct.bind(this));
+    router.patch("/products/:id", isAuthenticated, requirePermission("/inventory"), withProductId, this.updateProduct.bind(this));
+    router.delete("/products/:id", isAuthenticated, requirePermission("/inventory"), withProductId, this.deleteProduct.bind(this));
+    router.post("/products/:id/variants", isAuthenticated, requirePermission("/inventory"), withProductId, this.createVariant.bind(this));
+    router.post("/products/:id/restore", isAuthenticated, requirePermission("/inventory"), withProductId, this.restoreProduct.bind(this));
+    router.delete("/products/:id/permanent", isAuthenticated, requirePermission("/inventory"), withProductId, this.permanentDeleteProduct.bind(this));
   }
 
   private async getProducts(req: Request, res: Response): Promise<Response> {
@@ -118,9 +114,6 @@ export class ProductController extends BaseController {
 
   private async createProduct(req: Request, res: Response): Promise<Response> {
     try {
-      if (!this.isManagerOrOwner(req)) {
-        return this.forbidden(res, "Only managers or owners can create products.");
-      }
 
       const data = insertProductSchema.parse(req.body);
       data.name = toTitleCase(sanitizeString(data.name));
@@ -153,9 +146,6 @@ export class ProductController extends BaseController {
 
   private async updateProduct(req: Request, res: Response): Promise<Response> {
     try {
-      if (!this.isManagerOrOwner(req)) {
-        return this.forbidden(res, "Only managers or owners can update products.");
-      }
 
       const product = await storage.getProduct(req.params.id);
       if (!product) {
@@ -203,9 +193,6 @@ export class ProductController extends BaseController {
 
   private async deleteProduct(req: Request, res: Response): Promise<Response> {
     try {
-      if (!this.isManagerOrOwner(req)) {
-        return this.forbidden(res, "Only managers or owners can delete products.");
-      }
 
       const product = await storage.getProduct(req.params.id);
       if (!product) {
@@ -255,9 +242,6 @@ export class ProductController extends BaseController {
 
   private async restoreProduct(req: Request, res: Response): Promise<Response> {
     try {
-      if (!this.isManagerOrOwner(req)) {
-        return this.forbidden(res, "Only managers or owners can restore items.");
-      }
       const product = await storage.getProductByIdRaw(req.params.id);
       if (!product) return this.notFound(res, "Item not found.");
       if (!(await this.verifyStoreAccess(req, product.storeId))) {
@@ -274,9 +258,6 @@ export class ProductController extends BaseController {
 
   private async permanentDeleteProduct(req: Request, res: Response): Promise<Response> {
     try {
-      if (!this.isManagerOrOwner(req)) {
-        return this.forbidden(res, "Only managers or owners can permanently delete items.");
-      }
 
       const product = await storage.getProductByIdRaw(req.params.id);
       if (!product) return this.notFound(res, "Product not found.");
@@ -306,9 +287,6 @@ export class ProductController extends BaseController {
 
   private async createVariant(req: Request, res: Response): Promise<Response> {
     try {
-      if (!this.isManagerOrOwner(req)) {
-        return this.forbidden(res, "Only managers or owners can create variants.");
-      }
 
       const product = await storage.getProduct(req.params.id);
       if (!product) {

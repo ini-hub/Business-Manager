@@ -890,7 +890,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     }
   });
   // VAT collected per month, summed by the database.
-  app.get("/api/reports/vat-monthly", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/reports/vat-monthly", requirePermission("/settings/taxes"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });

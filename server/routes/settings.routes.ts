@@ -153,11 +153,6 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
         if (stray.length > 0) return res.status(400).json({ error: `These fields don't belong to ${section} settings: ${stray.join(", ")}.` });
       }
 
-      // Only owner/manager can edit settings
-      const role = (req as any).user?.role;
-      if (role !== "manager" && role !== "owner") {
-        return res.status(403).json({ error: "Only managers and owners can modify settings." });
-      }
 
       const businessId = (req as any).user?.businessId;
       const neededFeatureKeys = new Set(Object.keys(data).map((field) => GATED_SETTINGS_FIELDS[field]).filter(Boolean));
@@ -320,8 +315,8 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
     }
   };
 
-  app.put("/api/settings", isAuthenticated, (req, res) => handleSettingsUpdate(req, res));
-  app.put("/api/settings/:section", isAuthenticated, (req, res) => {
+  app.put("/api/settings", isAuthenticated, requirePermission("/settings"), (req, res) => handleSettingsUpdate(req, res));
+  app.put("/api/settings/:section", isAuthenticated, requirePermission("/settings"), (req, res) => {
     const section = String(req.params.section);
     if (!Object.prototype.hasOwnProperty.call(SETTINGS_SECTIONS, section)) return res.status(404).json({ error: "Unknown settings section." });
     return handleSettingsUpdate(req, res, section);
@@ -359,11 +354,6 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
       const data = insertPromotionSchema.parse(req.body);
       if (!(await checkStoreAccess(data.storeId, req, res))) return;
 
-      // Only owner/manager can edit promotions
-      const role = (req as any).user?.role;
-      if (role !== "manager" && role !== "owner") {
-        return res.status(403).json({ error: "Only managers and owners can manage promotions." });
-      }
 
       const promotion = await storage.createPromotion(data);
       auditLogger.logDataModification("promotions", promotion.id, getUserId(req), "CREATE", true);
@@ -385,11 +375,6 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
       if (!promotion) return res.status(404).json({ error: "Promotion not found." });
       if (!(await checkStoreAccess(promotion.storeId, req, res))) return;
 
-      // Only owner/manager can edit promotions
-      const role = (req as any).user?.role;
-      if (role !== "manager" && role !== "owner") {
-        return res.status(403).json({ error: "Only managers and owners can manage promotions." });
-      }
 
       const updated = await storage.updatePromotion(id, data);
       auditLogger.logDataModification("promotions", id, getUserId(req), "UPDATE", true);
@@ -409,11 +394,6 @@ export function registerSettingsRoutes(app: Express, { isAuthenticated, requireR
       if (!promotion) return res.status(404).json({ error: "Promotion not found." });
       if (!(await checkStoreAccess(promotion.storeId, req, res))) return;
 
-      // Only owner/manager can edit promotions
-      const role = (req as any).user?.role;
-      if (role !== "manager" && role !== "owner") {
-        return res.status(403).json({ error: "Only managers and owners can manage promotions." });
-      }
 
       await storage.deletePromotion(id);
       auditLogger.logDataModification("promotions", id, getUserId(req), "DELETE", true);

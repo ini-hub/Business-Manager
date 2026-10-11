@@ -65,6 +65,7 @@ export const GATED_API_DOMAINS: Record<string, string> = {
   promotions: "/settings/promotions",
   "audit-logs": "/reports/audit-logs",
   stores: "/settings",
+  settings: "/settings",
   business: "/settings",
   billing: "/settings",
 };
@@ -73,4 +74,12 @@ export const GATED_API_DOMAINS: Record<string, string> = {
 export const GATED_REPORT_PATHS: Record<string, string> = {
   "/api/reports/staff-performance": "/staffs/performance",
   "/api/reports/service-profitability": "/reports/service-profitability",
+  "/api/reports/payment-accounts": "/profit-loss",
+  "/api/reports/tax-returns": "/profit-loss",
+  "/api/reports/vat-monthly": "/settings/taxes",
+  "/api/reports/consumables-double-count": "/profit-loss",
+  "/api/sales/bank-connections": "/settings",
+  "/api/sales/banks": "/settings",
+  "/api/sales/payment-accounts": "/settings",
+  "/api/whatsapp/broadcasts": "/broadcasts",
 };

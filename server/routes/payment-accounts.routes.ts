@@ -7,6 +7,7 @@ import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import { PAYMENT_ACCOUNT_KINDS } from "@shared/schema";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { listBanks, resolveAccount } from "../lib/paystack";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -107,7 +108,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
     message: { error: "Too many account lookups. Please wait a moment." },
   });
 
-  app.get("/api/sales/banks", isAuthenticated, requireManagerOrOwner, async (_req, res) => {
+  app.get("/api/sales/banks", isAuthenticated, requirePermission("/settings"), async (_req, res) => {
     try {
       res.json(await listBanks());
     } catch {
@@ -115,7 +116,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
     }
   });
 
-  app.post("/api/sales/payment-accounts/resolve", isAuthenticated, requireManagerOrOwner, resolveLimiter, async (req, res) => {
+  app.post("/api/sales/payment-accounts/resolve", isAuthenticated, requirePermission("/settings"), resolveLimiter, async (req, res) => {
     const parsed = z.object({ accountNumber: z.string().trim(), bankCode: z.string().trim().min(1) }).safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: "Bank and account number are required." });
     const found = await lookupAccount(parsed.data.accountNumber, parsed.data.bankCode, (req as any).user?.id);
@@ -137,7 +138,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
     }
   });
 
-  app.post("/api/sales/payment-accounts", isAuthenticated, requireManagerOrOwner, async (req, res) => {
+  app.post("/api/sales/payment-accounts", isAuthenticated, requirePermission("/settings"), async (req, res) => {
     try {
       const storeId = req.body?.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -160,7 +161,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
     }
   });
 
-  app.patch("/api/sales/payment-accounts/:id", isAuthenticated, requireManagerOrOwner, async (req, res) => {
+  app.patch("/api/sales/payment-accounts/:id", isAuthenticated, requirePermission("/settings"), async (req, res) => {
     try {
       const existing = await storage.paymentAccountRepo.get(req.params.id);
       if (!existing) return res.status(404).json({ error: "Payment account not found." });
@@ -189,7 +190,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
   });
 
   // Per-account reconciliation of transfer and payment-link money.
-  app.get("/api/reports/payment-accounts", isAuthenticated, requireManagerOrOwner, async (req, res) => {
+  app.get("/api/reports/payment-accounts", isAuthenticated, requirePermission("/profit-loss"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -206,7 +207,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
   });
 
   // VAT collected vs given back through returns, with bank cross-checks when an account is linked.
-  app.get("/api/reports/tax-returns", isAuthenticated, requireManagerOrOwner, async (req, res) => {
+  app.get("/api/reports/tax-returns", isAuthenticated, requirePermission("/profit-loss"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });

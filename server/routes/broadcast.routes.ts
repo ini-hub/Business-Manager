@@ -6,6 +6,7 @@ import { customers } from "@shared/schema";
 import { BroadcastRepository } from "../repositories/BroadcastRepository";
 import { sendTemplateMessage } from "../services/WhatsAppService";
 import { getUserId } from "./helpers";
+import { requirePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -64,7 +65,7 @@ export function registerBroadcastRoutes(app: Express, { isAuthenticated, require
     }
   });
 
-  app.post("/api/whatsapp/broadcasts", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.post("/api/whatsapp/broadcasts", requirePermission("/broadcasts"), async (req: Request, res: Response) => {
     const { storeId, name, templateId, variableMapping, customerIds } = req.body;
     if (!storeId || !name || !templateId || !Array.isArray(customerIds) || customerIds.length === 0) {
       return res.status(400).json({ error: "storeId, name, templateId, and a non-empty customerIds list are required." });
@@ -96,7 +97,7 @@ export function registerBroadcastRoutes(app: Express, { isAuthenticated, require
     }
   });
 
-  app.post("/api/whatsapp/broadcasts/:id/send", requireManagerOrOwner, async (req: Request, res: Response) => {
+  app.post("/api/whatsapp/broadcasts/:id/send", requirePermission("/broadcasts"), async (req: Request, res: Response) => {
     try {
       const broadcast = await broadcastRepository.getBroadcast(req.params.id);
       if (!broadcast) return res.status(404).json({ error: "Broadcast not found." });

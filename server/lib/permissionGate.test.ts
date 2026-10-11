@@ -63,4 +63,19 @@ describe("converted route groups stay on requirePermission", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("keeps the settings and promotions routes free of inline owner/manager checks", () => {
+    // A route that passes requirePermission and then re-checks the built-in role would refuse the very
+    // custom role the page grant was meant to allow.
+    const src = fs.readFileSync(path.resolve(__dirname, "../routes/settings.routes.ts"), "utf8");
+    expect(src).not.toMatch(/role !== "manager" && role !== "owner"/);
+  });
+
+  it("keeps the product mutation routes on the inventory page permission", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../controllers/ProductController.ts"), "utf8");
+    expect(src).not.toMatch(/isManagerOrOwner/);
+    const mutating = src.split("\n").filter((l) => /router\.(post|patch|delete)\(/.test(l));
+    expect(mutating.length).toBeGreaterThanOrEqual(6);
+    for (const line of mutating) expect(line).toContain('requirePermission("/inventory")');
+  });
 });

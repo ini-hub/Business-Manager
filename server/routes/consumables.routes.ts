@@ -247,7 +247,7 @@ export function registerConsumablesRoutes(app: Express, { isAuthenticated, requi
   });
 
   // Services charging their consumables twice: a fixed cost price AND a recipe.
-  app.get("/api/reports/consumables-double-count", requireManagerOrOwner, async (req, res) => {
+  app.get("/api/reports/consumables-double-count", requirePermission("/profit-loss"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "storeId required" });
