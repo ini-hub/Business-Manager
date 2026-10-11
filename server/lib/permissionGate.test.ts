@@ -70,4 +70,12 @@ describe("converted route groups stay on requirePermission", () => {
     const src = fs.readFileSync(path.resolve(__dirname, "../routes/settings.routes.ts"), "utf8");
     expect(src).not.toMatch(/role !== "manager" && role !== "owner"/);
   });
+
+  it("keeps the product mutation routes on the inventory page permission", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../controllers/ProductController.ts"), "utf8");
+    expect(src).not.toMatch(/isManagerOrOwner/);
+    const mutating = src.split("\n").filter((l) => /router\.(post|patch|delete)\(/.test(l));
+    expect(mutating.length).toBeGreaterThanOrEqual(6);
+    for (const line of mutating) expect(line).toContain('requirePermission("/inventory")');
+  });
 });
