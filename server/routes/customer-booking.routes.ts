@@ -8,7 +8,7 @@ const bookingRepository = new BookingRepository();
 
 async function loadBookingForToken(token: string) {
   const [row] = await db
-    .select({ access: whatsappBookingAccessTokens, booking: bookings, storeName: stores.name })
+    .select({ access: whatsappBookingAccessTokens, booking: bookings, storeName: stores.name, storeCurrency: stores.currency })
     .from(whatsappBookingAccessTokens)
     .innerJoin(bookings, eq(whatsappBookingAccessTokens.bookingId, bookings.id))
     .innerJoin(stores, eq(bookings.storeId, stores.id))
@@ -40,6 +40,7 @@ export function registerCustomerBookingRoutes(app: Express): void {
           notes: row.booking.notes,
         },
         storeName: row.storeName,
+        storeCurrency: row.storeCurrency,
         items: items.map((i) => ({ quantity: i.quantity, unitPrice: i.unitPrice, totalPrice: i.totalPrice })),
       });
     } catch (error) {

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FullScreenLoader, Spinner } from "@/components/ui/loader";
+import { formatAmount } from "@/lib/currency-utils";
 
 type BookingView = {
   booking: {
@@ -17,6 +18,7 @@ type BookingView = {
     notes: string | null;
   };
   storeName: string;
+  storeCurrency?: string;
   items: { quantity: number; unitPrice: number; totalPrice: number }[];
 };
 
@@ -68,7 +70,8 @@ export default function CustomerBookingView() {
     );
   }
 
-  const { booking, storeName, items } = data;
+  const { booking, storeName, storeCurrency, items } = data;
+  const money = (n: number) => formatAmount(n, storeCurrency || "NGN");
   const scheduled = new Date(booking.scheduledAt);
   const canCancel = !["completed", "cancelled", "no_show"].includes(booking.status);
 
@@ -93,14 +96,14 @@ export default function CustomerBookingView() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Total</span>
-            <span className="text-sm font-medium">₦{Number(booking.totalPrice).toLocaleString()}</span>
+            <span className="text-sm font-medium">{money(Number(booking.totalPrice))}</span>
           </div>
           {items.length > 0 && (
             <div className="border-t pt-3 space-y-1">
               {items.map((item, i) => (
                 <div key={i} className="flex justify-between text-sm">
                   <span>Qty {item.quantity}</span>
-                  <span>₦{Number(item.totalPrice).toLocaleString()}</span>
+                  <span>{money(Number(item.totalPrice))}</span>
                 </div>
               ))}
             </div>
