@@ -25,7 +25,7 @@ export function useMultiStoreQuery<T extends { id: string | number }>(
   path: string,
   options: UseMultiStoreQueryOptions<T> = {}
 ) {
-  const { currentStore, stores } = useStore();
+  const { currentStore, scopedStores: stores } = useStore();
   const { enabled = true, merge = "flat", staleTime, params, fetchList } = options;
 
   const isAll = currentStore?.id === "all";

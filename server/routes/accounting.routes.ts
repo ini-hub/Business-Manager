@@ -3,6 +3,9 @@ import { AccountingRepository } from "../repositories/AccountingRepository";
 import { AccountingService } from "../services/AccountingService";
 import { insertCapitalContributionSchema, insertAssetSchema, insertLiabilitySchema } from "@shared/schema";
 import { requirePermission } from "../lib/permissionGate";
+import { resolveAccessibleStoreIds } from "./helpers";
+import { storage } from "../storage";
+import { consolidateBalanceSheets } from "../lib/balanceSheetConsolidation";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -23,6 +26,29 @@ export function registerAccountingRoutes(app: Express, { isAuthenticated, requir
   app.get("/api/accounting/balance-sheet", isAuthenticated, async (req: Request, res: Response) => {
     const storeId = req.query.storeId as string;
     if (!storeId) return res.status(400).json({ error: "Store ID is required." });
+
+    // "all" is the consolidated view: one sheet per store, plus totals per currency.
+    if (storeId === "all") {
+      try {
+        const { storeIds } = await resolveAccessibleStoreIds(req);
+        const user = (req as any).user;
+        const businessStores = user?.businessId ? await storage.getStores(user.businessId) : [];
+        const wanted = businessStores.filter((s) => s.isActive && storeIds.includes(s.id));
+        const sheets = await Promise.all(
+          wanted.map(async (s) => ({
+            ...(await accountingService.getBalanceSheet(s.id)),
+            storeId: s.id,
+            storeName: s.name,
+            currency: s.currency,
+          })),
+        );
+        return res.json(consolidateBalanceSheets(sheets));
+      } catch (error) {
+        console.error("[Accounting] consolidated balance sheet error:", error);
+        return res.status(500).json({ error: "Failed to load balance sheet." });
+      }
+    }
+
     if (!(await checkStoreAccess(storeId, req, res))) return;
 
     try {

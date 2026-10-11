@@ -51,6 +51,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { type TransactionWithRelations, VOID_REASON_PRESETS } from "@shared/schema";
 import { Spinner } from "@/components/ui/loader";
+import { formatAmount } from "@/lib/currency-utils";
 
 export default function TransactionDetailsPage() {
   const { id } = useParams();
@@ -974,7 +975,7 @@ export default function TransactionDetailsPage() {
                           )}
                           {(() => {
                             const d = log.details ?? {};
-                            const naira = (n: number) => `₦${Number(n).toLocaleString()}`;
+                            const naira = (n: number) => formatAmount(n, currentStore?.currency || "NGN");
                             const lines: string[] = [];
                             if (d.reason) lines.push(`Reason: ${d.reason}`);
                             if (d.creditSaleAmount != null) lines.push(`Credit sale: ${naira(d.creditSaleAmount)} owed by customer${d.creditPaidUpfront ? ` (${naira(d.creditPaidUpfront)} paid upfront)` : ""}, outstanding ${naira(d.creditOutstanding)} [${d.creditStatus}]`);

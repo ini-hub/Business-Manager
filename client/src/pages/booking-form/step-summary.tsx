@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { SegmentedControl } from "./segmented-control";
 import { fetchAllStaff } from "@/lib/staff-api";
 import { Spinner } from "@/components/ui/loader";
+import { formatAmount, getCurrencySymbol } from "@/lib/currency-utils";
 
 interface StepSummaryProps {
   form: UseFormReturn<BookingFormValues>;
@@ -33,6 +34,8 @@ interface StepSummaryProps {
 
 export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
   const { currentStore } = useStore();
+  const money = (n: number) => formatAmount(n, currentStore?.currency || "NGN");
+  const currencySym = getCurrencySymbol(currentStore?.currency || "NGN");
 
   const [applyDiscount, setApplyDiscount] = useState(false);
   const [discountType, setDiscountType] = useState<"amount" | "percent">("amount");
@@ -167,10 +170,10 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
               <div key={i} className="grid grid-cols-[1fr_auto_auto] gap-4 py-4 items-center border-t">
                 <span className="text-sm font-semibold truncate">{inv?.name ?? "Item"}</span>
                 <span className="text-sm text-muted-foreground tabular-nums">
-                  {item.quantity} × ₦{Number(item.unitPrice).toLocaleString()}
+                  {item.quantity} × {money(Number(item.unitPrice))}
                 </span>
                 <span className="text-sm font-bold text-right tabular-nums">
-                  ₦{(Number(item.quantity) * Number(item.unitPrice)).toLocaleString()}
+                  {money((Number(item.quantity) * Number(item.unitPrice)))}
                 </span>
               </div>
             );
@@ -198,7 +201,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
                 value={discountType}
                 onChange={(v) => setDiscountType(v)}
                 options={[
-                  { value: "amount", label: "₦", ariaLabel: "Naira amount" },
+                  { value: "amount", label: currencySym, ariaLabel: "Amount" },
                   { value: "percent", label: "%", ariaLabel: "Percentage" },
                 ]}
               />
@@ -221,17 +224,17 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
         <dl className="flex flex-col gap-3">
           <div className="flex justify-between text-sm">
             <dt className="text-muted-foreground">Subtotal</dt>
-            <dd className="tabular-nums">₦{subtotal.toLocaleString()}</dd>
+            <dd className="tabular-nums">{money(subtotal)}</dd>
           </div>
           {discountAmt > 0 && (
             <div className="flex justify-between text-sm">
               <dt className="text-muted-foreground">Discount</dt>
-              <dd className="text-emerald-600 tabular-nums">−₦{discountAmt.toLocaleString()}</dd>
+              <dd className="text-emerald-600 tabular-nums">−{money(discountAmt)}</dd>
             </div>
           )}
           <div className="flex items-baseline justify-between pt-3 border-t border-dashed">
             <dt className="text-sm font-bold">Total</dt>
-            <dd className="text-2xl font-bold tracking-tight tabular-nums">₦{finalTotal.toLocaleString()}</dd>
+            <dd className="text-2xl font-bold tracking-tight tabular-nums">{money(finalTotal)}</dd>
           </div>
         </dl>
 
@@ -260,7 +263,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
             <FormItem className="flex flex-col gap-2">
               <Label htmlFor="booking-deposit-amount" className="text-sm font-semibold">Deposit paid now</Label>
               <div className="flex items-center h-12 border rounded-lg px-3 gap-2">
-                <span className="text-sm text-muted-foreground">₦</span>
+                <span className="text-sm text-muted-foreground">{currencySym}</span>
                 <FormControl>
                   <input
                     id="booking-deposit-amount"
@@ -336,7 +339,7 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
             {paidInFull ? "Paid in full" : "Balance due on the day"}
           </span>
           <span className={cn("text-lg font-bold tabular-nums", paidInFull ? "text-emerald-700 dark:text-emerald-400" : "text-orange-700 dark:text-orange-400")}>
-            ₦{outstanding.toLocaleString()}
+            {money(outstanding)}
           </span>
         </div>
 

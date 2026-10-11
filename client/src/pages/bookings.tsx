@@ -41,7 +41,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getStatusColor } from "@/lib/booking-status";
 
 export default function BookingsPage() {
-  const { currentStore, stores } = useStore();
+  const { currentStore, scopedStores: stores } = useStore();
   const { user } = useAuth();
   const { toast } = useToast();
   const [view] = useUrlState<"list" | "calendar">("view", "list");

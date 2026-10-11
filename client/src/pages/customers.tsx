@@ -88,7 +88,7 @@ const CustomerCardNameCell = ({ customer }: { customer: Customer }) => (
 
 export default function Customers() {
   const { toast } = useToast();
-  const { currentStore, stores, business } = useStore();
+  const { currentStore, scopedStores: stores, business } = useStore();
   const { user } = useAuth();
   // Spend and visit history are money figures: owner/manager, or a custom role with the
   // Customers module. The built-in staff role holds that module too but never sees spend

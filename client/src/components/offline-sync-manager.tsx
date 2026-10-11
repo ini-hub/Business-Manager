@@ -60,7 +60,7 @@ function formatItemSummary(payload: any): string {
     const names = items.slice(0, 2).map((i: any) => `${i.quantity}×${i.inventoryId?.slice(0, 6)}`);
     const extra = items.length > 2 ? ` +${items.length - 2} more` : "";
     const total = payload.totalCharged ?? payload.balanceCollectedToday ?? 0;
-    return `${names.join(", ")}${extra} · ₦${Number(total).toLocaleString()}`;
+    return `${names.join(", ")}${extra} · ${Number(total).toLocaleString()}`;
   } catch {
     return "Offline sale";
   }

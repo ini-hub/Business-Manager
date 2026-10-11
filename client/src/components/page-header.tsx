@@ -33,7 +33,7 @@ const PAGE_GUIDES: Record<string, GuideContent> = {
       "Add catalog products or custom service packages to your active cart.",
       "Assign the handling Staff Member and a Customer (e.g. Walk-in) before checkout.",
       "Open Cash Drawer: If a drawer session isn't active, checkout will guide you to input your Opening Float and Notes.",
-      "Add Discounts or toggle Customer Loyalty to redeem maximum eligible points (1 Point = ₦10 discount).",
+      "Add Discounts or toggle Customer Loyalty to redeem maximum eligible points (the point value is set in your loyalty settings).",
       "Pick a payment method (Cash, Transfer, Card, Split, or Deposit) and tap Complete Sale."
     ],
     tips: [

@@ -13,6 +13,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useStore } from "@/lib/store-context";
+import { formatAmount, getCurrencySymbol } from "@/lib/currency-utils";
 
 interface CashRegisterDialogsProps {
   // Open Register
@@ -59,6 +61,9 @@ export function CashRegisterDialogs({
   closeRegisterNotes, setCloseRegisterNotes, closeRegisterMutation,
   showCloseSummary, setShowCloseSummary, closeSummaryData, setCloseSummaryData,
 }: CashRegisterDialogsProps) {
+  const { currentStore } = useStore();
+  const money = (n: number) => formatAmount(n, currentStore?.currency || "NGN");
+  const currencySym = getCurrencySymbol(currentStore?.currency || "NGN");
   return (
     <>
       {/* Open Register Dialog */}
@@ -79,7 +84,7 @@ export function CashRegisterDialogs({
 
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Opening Float (₦)</Label>
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Opening Float ({currencySym})</Label>
               <Input
                 type="number"
                 min="0"
@@ -143,7 +148,7 @@ export function CashRegisterDialogs({
 
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label className="text-xs font-semibold">Amount to Drop (₦)</Label>
+              <Label className="text-xs font-semibold">Amount to Drop ({currencySym})</Label>
               <Input
                 type="number"
                 min="1"
@@ -154,13 +159,13 @@ export function CashRegisterDialogs({
                 onChange={(e) => setCashDropAmount(e.target.value)}
               />
               <p className="text-[11px] text-muted-foreground">
-                Max drop eligible: ₦{(activeSession?.expectedCash || 0).toLocaleString()}
+                Max drop eligible: {money((activeSession?.expectedCash || 0))}
               </p>
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-semibold">Drawer Drop Notes</Label>
               <Textarea
-                placeholder="e.g. ₦50k rush drop to safe by shift supervisor."
+                placeholder="e.g. 50k rush drop to safe by shift supervisor."
                 className="text-xs resize-none h-20"
                 value={cashDropNotes}
                 onChange={(e) => setCashDropNotes(e.target.value)}
@@ -213,18 +218,18 @@ export function CashRegisterDialogs({
               </div>
               <div className="flex justify-between items-center text-[11px]">
                 <span>Opening Float:</span>
-                <span className="font-mono text-white">₦{(activeSession?.openingFloat || 0).toLocaleString()}</span>
+                <span className="font-mono text-white">{money((activeSession?.openingFloat || 0))}</span>
               </div>
               <div className="flex justify-between items-center text-[11px] pt-2 border-t">
                 <span className="font-bold">Expected Till Balance:</span>
                 <span className="font-mono font-bold text-emerald-400">
-                  ₦{(activeSession?.expectedCash || 0).toLocaleString()}
+                  {money((activeSession?.expectedCash || 0))}
                 </span>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label className="text-xs font-semibold">Counted Drawer Cash (₦) <span className="text-red-500">*</span></Label>
+              <Label className="text-xs font-semibold">Counted Drawer Cash ({currencySym}) <span className="text-red-500">*</span></Label>
               <Input
                 type="number"
                 min="0"
@@ -288,13 +293,13 @@ export function CashRegisterDialogs({
               <div className="space-y-1">
                 <span className="text-[11px] text-slate-500 uppercase font-semibold">Expected till count</span>
                 <span className="block font-mono text-sm text-slate-300">
-                  ₦{(closeSummaryData?.expectedCash || 0).toLocaleString()}
+                  {money((closeSummaryData?.expectedCash || 0))}
                 </span>
               </div>
               <div className="space-y-1">
                 <span className="text-[11px] text-slate-500 uppercase font-semibold">Counted till count</span>
                 <span className="block font-mono text-sm text-white">
-                  ₦{(closeSummaryData?.actualCash || 0).toLocaleString()}
+                  {money((closeSummaryData?.actualCash || 0))}
                 </span>
               </div>
             </div>
@@ -315,8 +320,8 @@ export function CashRegisterDialogs({
                 {(closeSummaryData?.difference || 0) === 0
                   ? "Balanced"
                   : (closeSummaryData?.difference || 0) > 0
-                  ? `+₦${(closeSummaryData?.difference || 0).toLocaleString()} (Surplus)`
-                  : `-₦${Math.abs(closeSummaryData?.difference || 0).toLocaleString()} (Shortage)`
+                  ? `+${money((closeSummaryData?.difference || 0))} (Surplus)`
+                  : `-${money(Math.abs(closeSummaryData?.difference || 0))} (Shortage)`
                 }
               </Badge>
             </div>

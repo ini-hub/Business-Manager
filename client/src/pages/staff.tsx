@@ -127,7 +127,7 @@ export default function StaffPage() {
   const [location, setLocation] = useLocation();
   const guardCap = useCountLimitGuard("staff_seats");
   const search = useSearch();
-  const { currentStore, stores, business } = useStore();
+  const { currentStore, scopedStores: stores, business } = useStore();
   const { user } = useAuth();
   const userRole = user?.role || "staff";
   const isOwner = userRole === "owner";

@@ -8,6 +8,7 @@ import { useStore } from "@/lib/store-context";
 import type { Customer } from "@shared/schema";
 import { BookingFormValues } from "./types";
 import { Spinner } from "@/components/ui/loader";
+import { formatAmount } from "@/lib/currency-utils";
 
 interface BookingSidebarProps {
   form: UseFormReturn<BookingFormValues>;
@@ -20,6 +21,7 @@ interface BookingSidebarProps {
 
 export function BookingSidebar({ form, nextLabel, onNext, onBack, backLabel, isSubmitting }: BookingSidebarProps) {
   const { currentStore } = useStore();
+  const money = (n: number) => formatAmount(n, currentStore?.currency || "NGN");
   const values = form.watch();
 
   const { data: customers = [] } = useQuery<Customer[]>({
@@ -73,7 +75,7 @@ export function BookingSidebar({ form, nextLabel, onNext, onBack, backLabel, isS
         <div className="border-t border-dashed pt-4 flex items-baseline justify-between">
           <span className="text-sm font-semibold">Subtotal</span>
           <span className="text-2xl font-bold tabular-nums tracking-tight">
-            ₦{subtotal.toLocaleString()}
+            {money(subtotal)}
           </span>
         </div>
       )}

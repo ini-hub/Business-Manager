@@ -70,6 +70,11 @@ export function formatCurrency(value: number, currencyCode: string = "NGN"): str
   }
 }
 
+/** "₵1,234" — symbol plus grouped digits, the plain form screens use for amounts in the store's currency. */
+export function formatAmount(value: number, currencyCode: string = "NGN"): string {
+  return `${getCurrencySymbol(currencyCode)}${Number(value).toLocaleString()}`;
+}
+
 /** 1 234 567 → 1.23M. For axes and narrow metric tiles, never in an export. */
 export function compactNumber(value: number): string {
   const abs = Math.abs(value);

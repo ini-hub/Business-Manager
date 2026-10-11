@@ -25,7 +25,7 @@ import {
 } from "recharts";
 
 export default function CustomerInsights() {
-  const { currentStore, stores } = useStore();
+  const { currentStore, scopedStores: stores } = useStore();
   const { user } = useAuth();
   // Same rule as the customer list: spend and visit history are money figures.
   const { hasPermission: hasCustomersModule, isLoading: isLoadingPermission } = useHasPermission("Customers");

@@ -64,7 +64,7 @@ import { GettingStartedChecklist } from "@/components/getting-started-checklist"
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConsolidatedFallbackAlert } from "@/components/oop-ui/ConsolidatedFallbackAlert";
 import { cn } from "@/lib/utils";
-import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
+import { formatCurrency as formatCurrencyUtil, formatAmount, getCurrencySymbol } from "@/lib/currency-utils";
 import { ReceiptModal } from "@/components/receipt-modal";
 import type { Customer, Staff, Inventory } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
@@ -102,6 +102,8 @@ export default function NewSale() {
   const { user } = useAuth();
   const { toast } = useToast();
   const { currentStore, business } = useStore();
+  const money = (n: number) => formatAmount(n, currentStore?.currency || "NGN");
+  const currencySym = getCurrencySymbol(currentStore?.currency || "NGN");
   const [, setLocation] = useLocation();
   const { data: storeSettings } = useQuery<any>({
     queryKey: ["/api/settings", currentStore?.id],
@@ -385,7 +387,7 @@ export default function NewSale() {
       queryClient.invalidateQueries({ queryKey: ["/api/cash-register/session", currentStore?.id] });
       toast({
         title: "Cash Drop Recorded!",
-        description: `Successfully dropped ₦${Number(cashDropAmount).toLocaleString()} from the drawer.`,
+        description: `Successfully dropped ${money(Number(cashDropAmount))} from the drawer.`,
       });
       setCashDropAmount("");
       setCashDropNotes("");
@@ -449,7 +451,12 @@ export default function NewSale() {
   });
 
   // Clear the register for the next customer. Used after a completed sale and after parking a draft.
+  // One id per sale in progress. The server dedupes on it, so a retry after a lost response
+  // (or a double tap) cannot create a second sale. Cleared once the sale is done.
+  const checkoutAttemptId = useRef<string | null>(null);
+
   const resetSaleState = () => {
+    checkoutAttemptId.current = null;
     setCart([]);
     setActiveDraftId(null);
     setSelectedCustomer("");
@@ -1065,7 +1072,7 @@ export default function NewSale() {
           appliedPromos.push({
             name: promo.name,
             type: "spend_x_get_y",
-            description: `Spend threshold of ₦${promo.spendAmount.toLocaleString()} reached. Get ${promo.getQuantity || 1} × ${rewardItem.name} free!`
+            description: `Spend threshold of ${money(promo.spendAmount)} reached. Get ${promo.getQuantity || 1} × ${rewardItem.name} free!`
           });
           freeItemsPreview.push({
             name: rewardItem.name,
@@ -1180,6 +1187,12 @@ export default function NewSale() {
         }
       }
 
+      if (!checkoutAttemptId.current) {
+        checkoutAttemptId.current = crypto.randomUUID
+          ? crypto.randomUUID()
+          : `sale_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      }
+
       const checkoutPayload = {
         storeId: currentStore?.id,
         bookingId: bookingId || undefined,
@@ -1201,6 +1214,7 @@ export default function NewSale() {
         bookingDepositMethod: freshDepositMethod || undefined,
         balanceCollectedToday: freshBalance,
         pointsRedeemed: freshPointsToRedeem > 0 ? freshPointsToRedeem : undefined,
+        clientCheckoutId: checkoutAttemptId.current,
       };
 
       if (!navigator.onLine) {
@@ -1433,8 +1447,8 @@ export default function NewSale() {
                 <PopoverTrigger asChild>
                   <Button variant="outline" className="bg-slate-900/40 border-slate-800 text-slate-200 hover:text-white flex items-center gap-2 rounded-xl h-10 px-3">
                     <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="font-mono text-xs hidden sm:inline">₦{activeSession.expectedCash.toLocaleString()} expected</span>
-                    <span className="font-mono text-xs sm:hidden">₦{(activeSession.expectedCash / 1000).toFixed(0)}k</span>
+                    <span className="font-mono text-xs hidden sm:inline">{money(activeSession.expectedCash)} expected</span>
+                    <span className="font-mono text-xs sm:hidden">{currencySym}{(activeSession.expectedCash / 1000).toFixed(0)}k</span>
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-80 p-4 bg-slate-900 border-slate-800 text-slate-350 rounded-2xl shadow-xl space-y-4 z-50">
@@ -1444,14 +1458,14 @@ export default function NewSale() {
                       Active Register Session
                     </h4>
                     <p className="text-[11px] text-slate-500">
-                      Opened {new Date(activeSession.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • ₦{activeSession.openingFloat.toLocaleString()} float
+                      Opened {new Date(activeSession.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {money(activeSession.openingFloat)} float
                     </p>
                   </div>
                   
                   <div className="p-3 bg-slate-950/60 border border-slate-850 rounded-xl space-y-2 text-xs">
                     <div className="flex justify-between items-center text-[11px] text-slate-500">
                       <span>Expected Drawer Balance</span>
-                      <span className="font-bold font-mono text-white">₦{activeSession.expectedCash.toLocaleString()}</span>
+                      <span className="font-bold font-mono text-white">{money(activeSession.expectedCash)}</span>
                     </div>
                     {activeSession.notes && (
                       <div className="pt-2 border-t border-slate-850 text-[11px] text-slate-450 italic">
@@ -2285,7 +2299,7 @@ export default function NewSale() {
                         <div className="flex-1 space-y-1">
                           <Label className="text-[11px] text-muted-foreground uppercase font-medium">Amount</Label>
                           <div className="relative">
-                            <span className="absolute left-2.5 top-1.5 text-xs text-muted-foreground">₦</span>
+                            <span className="absolute left-2.5 top-1.5 text-xs text-muted-foreground">{currencySym}</span>
                             <Input 
                               type="number" 
                               min="0"
@@ -2370,7 +2384,7 @@ export default function NewSale() {
                   ) : (
                     <>
                       <div className="space-y-2">
-                        <Label htmlFor="credit-upfront" className="text-xs font-medium text-muted-foreground">Amount Paid Upfront (₦)</Label>
+                        <Label htmlFor="credit-upfront" className="text-xs font-medium text-muted-foreground">Amount Paid Upfront ({currencySym})</Label>
                         <Input
                           id="credit-upfront"
                           type="number"
@@ -2386,8 +2400,8 @@ export default function NewSale() {
                           className="bg-background"
                         />
                         <div className="flex justify-between items-center text-[11px] text-muted-foreground px-0.5">
-                          <span>Total Cart: ₦{finalCartTotal.toLocaleString()}</span>
-                          <span className="font-semibold text-primary">Outstanding Debt: ₦{(finalCartTotal - creditUpfrontPaid).toLocaleString()}</span>
+                          <span>Total Cart: {money(finalCartTotal)}</span>
+                          <span className="font-semibold text-primary">Outstanding Debt: {money((finalCartTotal - creditUpfrontPaid))}</span>
                         </div>
                       </div>
 

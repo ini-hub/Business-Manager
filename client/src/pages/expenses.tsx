@@ -106,7 +106,7 @@ const expenseSchema = z.object({
 type ExpenseFormValues = z.infer<typeof expenseSchema>;
 
 export default function ExpensesPage() {
-  const { currentStore, stores, business } = useStore();
+  const { currentStore, scopedStores: stores, business } = useStore();
   const { user } = useAuth();
   const canBulkDelete = user?.role === "owner";
   const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);

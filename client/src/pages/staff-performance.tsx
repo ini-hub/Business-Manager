@@ -68,11 +68,13 @@ export default function StaffPerformancePage() {
     queryKey: [
       "/api/reports/staff-performance",
       currentStore?.id,
+      (currentStore as any)?.scopeCurrency,
       dateRange?.from?.toISOString(),
       dateRange?.to?.toISOString()
     ],
     queryFn: async () => {
       const params = new URLSearchParams({ storeId: currentStore!.id });
+      if ((currentStore as any).scopeCurrency) params.append("currency", (currentStore as any).scopeCurrency);
       if (dateRange?.from) params.append("startDate", format(dateRange.from, "yyyy-MM-dd"));
       if (dateRange?.to) params.append("endDate", format(dateRange.to, "yyyy-MM-dd"));
       const res = await fetch(`/api/reports/staff-performance?${params.toString()}`);

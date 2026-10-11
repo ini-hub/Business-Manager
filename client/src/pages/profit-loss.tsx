@@ -25,7 +25,8 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 
 export default function ProfitLossPage() {
-  const { currentStore, business, stores } = useStore();
+  const { currentStore, business, scopedStores: stores } = useStore();
+  const scopeCurrency = currentStore?.id === "all" ? ((currentStore as any).scopeCurrency as string | undefined) : undefined;
   const { user } = useAuth();
   const [location, setLocation] = useLocation();
   const search = useSearch();
@@ -59,6 +60,7 @@ export default function ProfitLossPage() {
     queryKey: [
       "/api/profit-loss",
       currentStore?.id,
+      scopeCurrency,
       business?.id,
       dateRange?.from?.toISOString(),
       dateRange?.to?.toISOString()
@@ -110,6 +112,7 @@ export default function ProfitLossPage() {
     queryKey: [
       "/api/profit-loss/summary",
       currentStore?.id,
+      scopeCurrency,
       business?.id,
       dateRange?.from?.toISOString(),
       dateRange?.to?.toISOString()
@@ -121,6 +124,7 @@ export default function ProfitLossPage() {
       if (currentStore?.id === "all") {
         const params = new URLSearchParams();
         if (business?.id) params.append("businessId", business.id);
+        if (scopeCurrency) params.append("currency", scopeCurrency);
         if (fromParam) params.append("startDate", fromParam);
         if (toParam) params.append("endDate", toParam);
         const res = await fetch(`/api/profit-loss/summary?${params.toString()}`);

@@ -1029,8 +1029,8 @@ export default function StaffFormPage() {
                         <p className="text-xs font-bold text-primary">Custom Roster &amp; Transport Daily Rates</p>
                         <div className="grid gap-3 sm:grid-cols-2">
                           {[
-                            { name: "activeDayRateOverride", label: "Active Day Transport (₦)" },
-                            { name: "passiveDayRateOverride", label: "Passive Day Transport (₦)" },
+                            { name: "activeDayRateOverride", label: `Active Day Transport (${currencyInfo?.symbol || "₦"})` },
+                            { name: "passiveDayRateOverride", label: `Passive Day Transport (${currencyInfo?.symbol || "₦"})` },
                           ].map(({ name, label }) => (
                             <FormField key={name} control={form.control} name={name} render={({ field }) => (
                               <FormItem>
@@ -1060,7 +1060,7 @@ export default function StaffFormPage() {
                               )} />
                               <FormField control={form.control} name={rate} render={({ field }) => (
                                 <FormItem>
-                                  <FormLabel className="text-[11px] text-muted-foreground">Daily Rate (₦)</FormLabel>
+                                  <FormLabel className="text-[11px] text-muted-foreground">Daily Rate ({currencyInfo?.symbol || "₦"})</FormLabel>
                                   <FormControl>
                                     <Input type="number" disabled={!form.watch(toggle)} className="h-7 text-xs font-mono p-1"
                                       {...field} onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)} />

@@ -109,8 +109,12 @@ export async function getUserStores(req: Request): Promise<any[]> {
   const userId = (req as any).user?.userId || (req as any).user?.id;
   if (!userId) return [];
   const user = await storage.getUser(userId);
-  if (!user || !user.businessId) return [];
-  return await storage.getStores(user.businessId);
+  if (!user) return [];
+  // The active business is the one on the session; the user record's own business is only a fallback
+  // (a person who belongs to several businesses has one session per business).
+  const businessId = (req as any).user?.businessId || user.businessId;
+  if (!businessId) return [];
+  return await storage.getStores(businessId);
 }
 
 /**
@@ -129,6 +133,17 @@ export async function getUserStores(req: Request): Promise<any[]> {
 // Staff are never cached: their store assignment changes who they may see, and that must apply at once.
 const accessibleStoresCache = createTtlCache<string, string[]>(30_000);
 
+/** Keeps only the stores in `currency` when one is asked for (a business with several currencies is totalled one at a time). */
+export function storesInCurrency<T extends { currency: string }>(stores: T[], currency: unknown): T[] {
+  return typeof currency === "string" && currency ? stores.filter((s) => s.currency === currency) : stores;
+}
+
+/** The business's stores a staff user may reach: those where they hold a staff row. */
+export function storesForStaff(businessStoreIds: readonly string[], staffStoreIds: readonly string[]): string[] {
+  const held = new Set(staffStoreIds);
+  return businessStoreIds.filter((id) => held.has(id));
+}
+
 async function loadAllowedStoreIds(req: Request): Promise<string[]> {
   const user = (req as any).user;
   const userId = user?.id ?? user?.userId;
@@ -137,11 +152,12 @@ async function loadAllowedStoreIds(req: Request): Promise<string[]> {
     return stores.map((s: any) => s.id as string);
   };
 
-  // Staff are pinned to their own store, matching verifyStoreAccess.
+  // Staff see the stores they have an active staff row in (one row per store they work at),
+  // matching verifyStoreAccess and the store list in loadVisibleStores.
   if (user?.role === "staff") {
     const allowed = await load();
-    const staffRecord = await storage.getStaffByUserId(userId);
-    return staffRecord ? allowed.filter((id) => id === staffRecord.storeId) : [];
+    const rows = userId ? await storage.getAllStaffByUserId(userId) : [];
+    return storesForStaff(allowed, rows.map((r) => r.storeId));
   }
   return userId ? accessibleStoresCache.get(`${userId}:${user?.businessId ?? ""}`, load) : load();
 }
