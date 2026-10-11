@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "./queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import type { Business, Store, InsertBusiness, InsertStore } from "@shared/schema";
 import { isMixedCurrency } from "@shared/currency-groups";
+import { setScopeCurrency } from "./scopeCurrency";
 
 interface StoreContextType {
   business: Business | null;
@@ -62,6 +63,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           (!!savedAllCurrency && mixed && activeStores.some((s) => s.currency === savedAllCurrency)));
       if (allViewValid) {
         const currency = savedAllCurrency || activeStores[0]?.currency || "NGN";
+        setScopeCurrency(savedAllCurrency);
         setCurrentStoreState({
           id: "all",
           name: savedAllCurrency ? `All ${currency} stores` : "All Stores (Consolidated)",
@@ -72,12 +74,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } as any);
       } else {
         const savedStore = savedStoreId ? activeStores.find(s => s.id === savedStoreId) : null;
+        setScopeCurrency(null);
         setCurrentStoreState(savedStore || activeStores.find(s => s.isMain) || activeStores[0]);
       }
     }
   }, [activeStores, storageKey, user, business]);
 
   const setCurrentStore = (store: Store) => {
+    // Before the invalidation below, so the refetches already carry the new scope.
+    setScopeCurrency(store.id === "all" ? ((store as any).scopeCurrency as string | undefined) : null);
     setCurrentStoreState(store);
     const scopeCurrency = (store as any).scopeCurrency as string | undefined;
     if (storageKey) localStorage.setItem(storageKey, store.id === "all" && scopeCurrency ? `all:${scopeCurrency}` : store.id);

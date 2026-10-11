@@ -14,7 +14,7 @@ import { eq, inArray } from "drizzle-orm";
 import { auditLogger } from "../audit";
 import { getCheckoutMoneyDetails } from "../lib/checkoutAuditDetails";
 import { analyticsService } from "../services/AnalyticsService";
-import { getUserId, formatZodErrors, checkBusinessAccess, broadcastChange, getAuditContext, storesInCurrency } from './helpers';
+import { getUserId, formatZodErrors, checkBusinessAccess, broadcastChange, getAuditContext, storesInCurrency, requestedCurrency } from './helpers';
 import { isOrgTrialing } from "../lib/trial";
 import { logFunnelEvent } from "../lib/funnel";
 import { getRequestEntitlements, featureNotPurchasedBody } from "../lib/entitlements";
@@ -77,7 +77,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
         if (!(await checkBusinessAccess(businessId, req, res))) return;
 
         // Fetch all stores of this business
-        const stores = storesInCurrency(await storage.getStores(businessId), req.query.currency);
+        const stores = storesInCurrency(await storage.getStores(businessId), requestedCurrency(req));
         if (stores.length === 0) {
           return res.json({
             serviceRevenue: 0,
@@ -225,7 +225,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
       if (businessId) {
         if (!(await checkBusinessAccess(businessId, req, res))) return;
         // A business with several currencies is totalled one currency at a time.
-        const currency = typeof req.query.currency === "string" ? req.query.currency : undefined;
+        const currency = requestedCurrency(req);
         const allStores = await storage.getStores(businessId);
         const stores = storesInCurrency(allStores, currency);
         if (stores.length === 0) {
@@ -347,7 +347,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
 
       if (businessId) {
         if (!(await checkBusinessAccess(businessId, req, res))) return;
-        const stores = storesInCurrency(await storage.getStores(businessId), req.query.currency);
+        const stores = storesInCurrency(await storage.getStores(businessId), requestedCurrency(req));
         if (stores.length === 0) return res.json([]);
 
         const storeTrends = await Promise.all(
@@ -397,7 +397,7 @@ export function registerSalesRoutes(app: Express, { isAuthenticated, requireRole
 
       if (businessId) {
         if (!(await checkBusinessAccess(businessId, req, res))) return;
-        const stores = storesInCurrency(await storage.getStores(businessId), req.query.currency);
+        const stores = storesInCurrency(await storage.getStores(businessId), requestedCurrency(req));
         if (stores.length === 0) return res.json([]);
 
         const storeRevenues = await Promise.all(

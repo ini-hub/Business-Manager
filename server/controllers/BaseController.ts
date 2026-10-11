@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { storage } from "../storage";
-import { checkStoreAccessHelper } from "../routes/helpers";
+import { checkStoreAccessHelper, requestedCurrency, storesInCurrency } from "../routes/helpers";
 
 export abstract class BaseController {
   /**
@@ -73,7 +73,9 @@ export abstract class BaseController {
     const userId = req.user?.userId || req.user?.id;
     if (!userId) return [];
     const user = await storage.getUser(userId);
-    if (!user || !user.businessId) return [];
-    return await storage.getStores(user.businessId);
+    if (!user) return [];
+    const businessId = req.user?.businessId || user.businessId;
+    if (!businessId) return [];
+    return storesInCurrency(await storage.getStores(businessId), requestedCurrency(req));
   }
 }
