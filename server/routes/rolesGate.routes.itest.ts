@@ -4,7 +4,7 @@ import http from "http";
 import type { AddressInfo } from "net";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { customRoles, users, organisationMembers } from "@shared/schema";
+import { customRoles, users, organisationMembers, storePaymentAccounts } from "@shared/schema";
 import { registerRoutes } from "../routes";
 import { generateToken } from "../auth";
 import { syncFeatureRegistry } from "../lib/featureSync";
@@ -23,6 +23,7 @@ let server: http.Server;
 let base = "";
 const roleBusinesses: string[] = [];
 const roleUsers: string[] = [];
+const roleStores: string[] = [];
 
 async function api(method: string, path: string, token: string, body?: unknown) {
   const res = await fetch(`${base}${path}`, {
@@ -42,6 +43,7 @@ async function withRole(permissions: string[]) {
   const roleName = "buyer";
   await db.insert(customRoles).values({ businessId: A.f.businessId, name: roleName, permissions });
   roleBusinesses.push(A.f.businessId);
+  roleStores.push(A.f.storeId);
   const [u] = await db.insert(users).values({
     email: `owner-${roleName}-${A.f.businessId.slice(0, 8)}@example.test`, name: "Custom Role User", role: roleName,
   }).returning();
@@ -63,6 +65,7 @@ beforeAll(async () => {
 }, 180_000);
 
 afterEach(async () => {
+  for (const id of roleStores.splice(0)) await db.delete(storePaymentAccounts).where(eq(storePaymentAccounts.storeId, id));
   for (const id of roleBusinesses.splice(0)) await db.delete(customRoles).where(eq(customRoles.businessId, id));
   for (const id of roleUsers.splice(0)) {
     await db.delete(organisationMembers).where(eq(organisationMembers.userId, id));
@@ -102,5 +105,41 @@ describe("custom role on the converted routes", () => {
     const withPage = await withRole(["/profit-loss"]);
     const ok = await api("GET", `/api/reports/payment-accounts?storeId=${withPage.A.f.storeId}`, withPage.token);
     expect(refused(ok.status)).toBe(false);
+  });
+});
+
+describe("inactive payment accounts follow the Settings page", () => {
+  async function seed(storeId: string) {
+    await db.insert(storePaymentAccounts).values([
+      { storeId, label: "Active account", kind: "bank", isActive: true },
+      { storeId, label: "Retired account", kind: "bank", isActive: false },
+    ]);
+  }
+  const labels = (body: any) => (Array.isArray(body) ? body.map((a: any) => a.label).sort() : body);
+
+  it("shows inactive accounts to a custom role that holds Settings", async () => {
+    const { A, token } = await withRole(["/settings"]);
+    await seed(A.f.storeId);
+    const res = await api("GET", `/api/sales/payment-accounts?storeId=${A.f.storeId}&includeInactive=true`, token);
+    expect(res.status).toBe(200);
+    expect(labels(res.body)).toEqual(["Active account", "Retired account"]);
+  });
+
+  it("hides them from a custom role without Settings, even when asked", async () => {
+    const { A, token } = await withRole(["/customers"]);
+    await seed(A.f.storeId);
+    const res = await api("GET", `/api/sales/payment-accounts?storeId=${A.f.storeId}&includeInactive=true`, token);
+    expect(res.status).toBe(200);
+    expect(labels(res.body)).toEqual(["Active account"]);
+  });
+
+  it("still shows them to the owner, and only active ones when not asked", async () => {
+    const { A } = await withRole(["/customers"]);
+    await seed(A.f.storeId);
+    const owner = generateToken({ userId: A.owner!.id, organisationId: A.f.businessId, role: "owner" });
+    const all = await api("GET", `/api/sales/payment-accounts?storeId=${A.f.storeId}&includeInactive=true`, owner);
+    expect(labels(all.body)).toEqual(["Active account", "Retired account"]);
+    const activeOnly = await api("GET", `/api/sales/payment-accounts?storeId=${A.f.storeId}`, owner);
+    expect(labels(activeOnly.body)).toEqual(["Active account"]);
   });
 });
