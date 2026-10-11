@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import fs from "fs";
 import path from "path";
-import { GATED_API_DOMAINS, GATED_REPORT_PATHS, requirePermission } from "./permissionGate";
+import { GATED_API_DOMAINS, GATED_REPORT_PATHS, requirePermission, hasPagePermission } from "./permissionGate";
 import { isPermissionKey } from "@shared/permissions";
 
 vi.mock("./roles", () => ({ getRoleRows: vi.fn() }));
@@ -39,6 +39,22 @@ describe("requirePermission", () => {
     expect((await run("buyer", rows)).next).toBe(true);
     expect((await run("buyer", rows, "/inventory")).status).toBe(403);
     expect((await run("ghost", rows)).status).toBe(403);
+  });
+});
+
+describe("hasPagePermission", () => {
+  const check = async (role: string | undefined, rows: any[], key = "/settings") => {
+    (getRoleRows as any).mockResolvedValue(rows);
+    return hasPagePermission({ user: role ? { role, businessId: "b1" } : undefined } as any, key);
+  };
+  it("answers the same way requirePermission does", async () => {
+    expect(await check(undefined, [])).toBe(false);
+    expect(await check("owner", [])).toBe(true);
+    expect(await check("manager", [])).toBe(true);
+    expect(await check("staff", [])).toBe(false);
+    const rows = [{ name: "Buyer", kind: "custom", permissions: ["/settings"] }];
+    expect(await check("buyer", rows)).toBe(true);
+    expect(await check("buyer", rows, "/inventory")).toBe(false);
   });
 });
 

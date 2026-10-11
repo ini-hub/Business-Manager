@@ -7,7 +7,7 @@ import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import { PAYMENT_ACCOUNT_KINDS } from "@shared/schema";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { listBanks, resolveAccount } from "../lib/paystack";
-import { requirePermission } from "../lib/permissionGate";
+import { requirePermission, hasPagePermission } from "../lib/permissionGate";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -130,8 +130,7 @@ export function registerPaymentAccountRoutes(app: Express, { isAuthenticated, re
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
       if (!(await checkStoreAccess(storeId, req, res))) return;
-      const role = (req as any).user?.role;
-      const includeInactive = req.query.includeInactive === "true" && (role === "owner" || role === "manager");
+      const includeInactive = req.query.includeInactive === "true" && (await hasPagePermission(req, "/settings"));
       res.json(await storage.paymentAccountRepo.list(storeId, { includeInactive }));
     } catch {
       res.status(500).json({ error: "Could not fetch payment accounts." });

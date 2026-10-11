@@ -16,24 +16,34 @@ import { getRoleRows } from "./roles";
  * grant is never enough for those, so they are not routed through here.
  */
 export function requirePermission(pageKey: string, ...legacyRoles: string[]) {
-  const legacy = legacyRoles.length > 0 ? legacyRoles : ["owner", "manager"];
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const user = (req as any).user as { role?: string; businessId?: string } | undefined;
-      const role = user?.role;
-      if (!role) return res.status(401).json({ error: "Authentication required." });
-      if (role === "owner") return next();
-
-      const rows = await getRoleRows(user?.businessId);
-      const builtIn = role === "manager" || role === "staff";
-      const allowed = builtIn && !hasSystemOverride(role, rows) ? legacy.includes(role) : effectivePermissions(role, rows).has(pageKey);
-      if (!allowed) return res.status(403).json({ error: "You don't have permission to access this resource." });
+      if (!(req as any).user?.role) return res.status(401).json({ error: "Authentication required." });
+      if (!(await hasPagePermission(req, pageKey, ...legacyRoles))) {
+        return res.status(403).json({ error: "You don't have permission to access this resource." });
+      }
       next();
     } catch (error) {
       console.error("requirePermission error:", error);
       res.status(500).json({ error: "Authorization check failed." });
     }
   };
+}
+
+/**
+ * The same decision as requirePermission, for a handler that needs it inline (to decide what to
+ * include in a response rather than whether to answer at all).
+ */
+export async function hasPagePermission(req: Request, pageKey: string, ...legacyRoles: string[]): Promise<boolean> {
+  const legacy = legacyRoles.length > 0 ? legacyRoles : ["owner", "manager"];
+  const user = (req as any).user as { role?: string; businessId?: string } | undefined;
+  const role = user?.role;
+  if (!role) return false;
+  if (role === "owner") return true;
+
+  const rows = await getRoleRows(user?.businessId);
+  const builtIn = role === "manager" || role === "staff";
+  return builtIn && !hasSystemOverride(role, rows) ? legacy.includes(role) : effectivePermissions(role, rows).has(pageKey);
 }
 
 /**
