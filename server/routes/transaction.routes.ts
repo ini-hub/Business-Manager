@@ -375,6 +375,7 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       const assignments = raw.map((a: any) => ({
         checkoutId: String(a?.checkoutId ?? ""),
         staffIds: Array.isArray(a?.staffIds) ? a.staffIds.map(String) : [],
+        commissionSplit: a?.commissionSplit === "equal" ? ("equal" as const) : a?.commissionSplit === "standard" ? ("standard" as const) : undefined,
       }));
       if (assignments.some((a) => !a.checkoutId)) {
         return res.status(400).json({ error: "Invalid assignment." });
@@ -393,7 +394,7 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       auditLogger.logEvent(ctx, "TRANSACTION_STAFF_EDIT", "checkout", checkoutId, "success", {
         previousValues: { receiptNumber: result.receiptNumber, staffByLine: result.previousValues },
         newValues: { staffByLine: result.newValues },
-        changedFields: ["leadStaffId", "assistingStaff1Id", "assistingStaff2Id"],
+        changedFields: ["leadStaffId", "assistingStaff1Id", "assistingStaff2Id", "commissionSplit"],
       });
 
       broadcastChange(req, "sales", result.storeId, "updated");
@@ -403,11 +404,97 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
     }
   });
 
+  // ─── Edit one receipt line: staff/split, quantity, price or item ─────────
+  // Money and stock go through the same return + addendum code as the
+  // standalone flows (SalesRepository.amendLine), in a single transaction.
+  app.patch("/api/transactions/:checkoutId/lines/:lineCheckoutId", requireRole("owner", "manager"), async (req: any, res) => {
+    try {
+      const { lineCheckoutId } = req.params;
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized." });
+
+      const lineStoreId = await storage.getCheckoutStoreId(lineCheckoutId);
+      if (!lineStoreId) return res.status(404).json({ error: "Line item not found." });
+      if (!(await checkStoreAccess(lineStoreId, req, res))) return;
+
+      const b = req.body ?? {};
+      const reason = typeof b.reason === "string" ? b.reason.trim() : "";
+      if (!reason) return res.status(400).json({ error: "A reason is required." });
+
+      const num = (v: unknown) => (v === undefined || v === null || v === "" ? undefined : Number(v));
+      const quantity = num(b.quantity);
+      const unitPrice = num(b.unitPrice);
+      if ((quantity !== undefined && !Number.isFinite(quantity)) || (unitPrice !== undefined && !Number.isFinite(unitPrice))) {
+        return res.status(400).json({ error: "Quantity and price must be numbers." });
+      }
+      const methods = ["cash", "transfer", "credit", "store_credit"] as const;
+      if (b.settlementMethod !== undefined && !methods.includes(b.settlementMethod)) {
+        return res.status(400).json({ error: "Invalid settlement method. Use cash, transfer, credit, or store_credit." });
+      }
+      const id = (v: unknown) => (typeof v === "string" && v ? v : null);
+
+      const result = await storage.amendLine({
+        lineCheckoutId,
+        inventoryId: id(b.inventoryId) ?? undefined,
+        quantity,
+        unitPrice,
+        staff: {
+          leadStaffId: id(b.leadStaffId),
+          assistingStaff1Id: id(b.assistingStaff1Id),
+          assistingStaff2Id: id(b.assistingStaff2Id),
+        },
+        commissionSplit: b.commissionSplit === "equal" ? "equal" : b.commissionSplit === "standard" ? "standard" : undefined,
+        settlementMethod: b.settlementMethod,
+        reason,
+        userId,
+      });
+
+      const ctx = await getAuditContext(req, { storeId: result.storeId ?? lineStoreId });
+      if (!result.success) {
+        auditLogger.logEvent(ctx, "TRANSACTION_LINE_EDIT", "checkout", lineCheckoutId, "failure", {
+          errorMessage: result.message,
+        });
+        return res.status(400).json({ error: result.message });
+      }
+
+      auditLogger.logEvent(ctx, "TRANSACTION_LINE_EDIT", "checkout", lineCheckoutId, "success", {
+        previousValues: { receiptNumber: result.receiptNumber, ...result.previousValues },
+        newValues: { mode: result.mode, reason, ...result.newValues },
+        changedFields: ["inventoryId", "quantity", "unitPrice", "staff", "commissionSplit"],
+      });
+
+      // Cash paid out/in by the amend is booked in the same transaction (the
+      // replacement charge); the refund leg is a drawer payout, as for returns.
+      if (result.cashRefund && result.cashRefund > 0) {
+        try {
+          const activeSession = await storage.cashRegisterRepo.getActiveSession(lineStoreId);
+          if (activeSession) {
+            await storage.cashRegisterRepo.recordCashDrop({
+              sessionId: activeSession.id,
+              amount: result.cashRefund,
+              droppedByUserId: userId,
+              notes: `Line edit refund on receipt ${result.receiptNumber}`,
+            });
+          }
+        } catch (drawerErr) {
+          console.error("Failed to update cash register session for line edit:", drawerErr);
+        }
+      }
+
+      broadcastChange(req, "sales", lineStoreId, "updated");
+      if (result.mode !== "staff") broadcastChange(req, "inventory", lineStoreId, "updated");
+      res.json({ success: true, message: result.message, mode: result.mode });
+    } catch (error) {
+      console.error("Amend line API Error:", error);
+      res.status(500).json({ error: "Could not update this line." });
+    }
+  });
+
   // ─── Add missed item (addendum) ──────────────────────────────────────────
   app.post("/api/transactions/:checkoutId/addendum", requireRole("owner", "manager"), async (req: any, res) => {
     try {
       const { checkoutId } = req.params;
-      const { inventoryId, quantity, customPrice, staffId, leadStaffId, assistingStaff1Id, assistingStaff2Id, paymentMethod, reason } = req.body;
+      const { inventoryId, quantity, customPrice, staffId, leadStaffId, assistingStaff1Id, assistingStaff2Id, commissionSplit, paymentMethod, reason } = req.body;
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ error: "Unauthorized." });
 
@@ -428,6 +515,7 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
         leadStaffId: leadStaffId || undefined,
         assistingStaff1Id: assistingStaff1Id || undefined,
         assistingStaff2Id: assistingStaff2Id || undefined,
+        commissionSplit: commissionSplit === "equal" ? "equal" : "standard",
         paymentMethod,
         reason: reason.trim(),
         userId,

@@ -443,6 +443,7 @@ interface IStorage {
     leadStaffId?: string;
     assistingStaff1Id?: string;
     assistingStaff2Id?: string;
+    commissionSplit?: "standard" | "equal";
     paymentMethod: "cash" | "transfer" | "credit" | "store_credit";
     reason: string;
     userId: string;
@@ -480,6 +481,8 @@ interface IStorage {
 
   // Correct who performed each service line post-sale
   updateServiceStaff(data: Parameters<SalesRepository["updateServiceStaff"]>[0]): ReturnType<SalesRepository["updateServiceStaff"]>;
+  amendLine(data: Parameters<SalesRepository["amendLine"]>[0]): ReturnType<SalesRepository["amendLine"]>;
+  getCheckoutStoreId(checkoutId: string): Promise<string | null>;
 
   // Update transaction date post-sale (owner only)
   updateTransactionDate(data: Parameters<SalesRepository["updateTransactionDate"]>[0]): ReturnType<SalesRepository["updateTransactionDate"]>;
@@ -1213,6 +1216,14 @@ class DatabaseStorage implements IStorage {
     return this.salesRepo.updateServiceStaff(data);
   }
 
+  async amendLine(data: Parameters<SalesRepository["amendLine"]>[0]) {
+    return this.salesRepo.amendLine(data);
+  }
+
+  async getCheckoutStoreId(checkoutId: string) {
+    return this.salesRepo.getCheckoutStoreId(checkoutId);
+  }
+
   async updateTransactionDate(data: Parameters<SalesRepository["updateTransactionDate"]>[0]) {
     return this.salesRepo.updateTransactionDate(data);
   }
@@ -1226,6 +1237,7 @@ class DatabaseStorage implements IStorage {
     leadStaffId?: string;
     assistingStaff1Id?: string;
     assistingStaff2Id?: string;
+    commissionSplit?: "standard" | "equal";
     paymentMethod: "cash" | "transfer" | "credit" | "store_credit";
     reason: string;
     userId: string;

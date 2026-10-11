@@ -1617,7 +1617,7 @@ export class SalesRepository {
   // refused when the sale date sits in a finalized payroll period.
   async updateServiceStaff(data: {
     checkoutId: string;
-    assignments: Array<{ checkoutId: string; staffIds: string[] }>;
+    assignments: Array<{ checkoutId: string; staffIds: string[]; commissionSplit?: "standard" | "equal" }>;
   }): Promise<{
     success: boolean;
     message: string;
@@ -1672,6 +1672,8 @@ export class SalesRepository {
             leadStaffId: a.staffIds[0],
             assistingStaff1Id: a.staffIds[1] ?? null,
             assistingStaff2Id: a.staffIds[2] ?? null,
+            // Only meaningful with an assistant; a solo performer always earns 100%.
+            commissionSplit: a.staffIds.length > 1 ? (a.commissionSplit ?? line.commissionSplit) : "standard",
           }).where(eq(checkouts.id, line.id));
         }
       });
@@ -1683,7 +1685,449 @@ export class SalesRepository {
     }
   }
 
-  // ─── processAddendum ──────────────────────────────────────────────────────
+  async getCheckoutStoreId(checkoutId: string): Promise<string | null> {
+    const [row] = await db.select({ storeId: checkouts.storeId }).from(checkouts).where(eq(checkouts.id, checkoutId));
+    return row?.storeId ?? null;
+  }
+
+  // ─── amendLine ─────────────────────────────────────────────────────────────
+  // Post-sale edit of one receipt line: staff + commission split, quantity,
+  // unit price, or the item itself. Money and stock move through the existing
+  // return and addendum code paths (returnInTx / addendumInTx) inside ONE
+  // transaction, so payments, stock, P&L and consumables reconcile exactly as
+  // they would had staff done a return and a missed-item by hand.
+  //
+  //   staff/split only          -> columns on the line, no money
+  //   same item+price, qty down -> partial return of the difference
+  //   same item+price, qty up   -> addendum of the difference
+  //   price or item changed     -> return what is left of the line + addendum
+  //                                of the replacement at the original sale date
+  //
+  // Commission nets out returned quantity (PayrollService.netOfReturns), so a
+  // replaced line stops earning and the replacement starts.
+  async amendLine(data: {
+    lineCheckoutId: string;
+    inventoryId?: string;
+    quantity?: number;
+    unitPrice?: number;
+    staff: { leadStaffId?: string | null; assistingStaff1Id?: string | null; assistingStaff2Id?: string | null };
+    commissionSplit?: "standard" | "equal";
+    settlementMethod?: "cash" | "transfer" | "credit" | "store_credit";
+    reason: string;
+    userId: string;
+  }): Promise<{
+    success: boolean;
+    message: string;
+    storeId?: string;
+    receiptNumber?: string;
+    mode?: "staff" | "partial_return" | "add_quantity" | "replace";
+    cashRefund?: number;
+    previousValues?: Record<string, unknown>;
+    newValues?: Record<string, unknown>;
+  }> {
+    try {
+      let out: {
+        storeId: string; receiptNumber: string; mode: "staff" | "partial_return" | "add_quantity" | "replace";
+        cashRefund: number; previousValues: Record<string, unknown>; newValues: Record<string, unknown>;
+      } | undefined;
+
+      await db.transaction(async (tx) => {
+        const [line] = await tx.select().from(checkouts).where(eq(checkouts.id, data.lineCheckoutId));
+        if (!line) throw new Error("Line item not found.");
+        if (line.isVoided) throw new Error("Cannot edit a voided line.");
+        const [order] = await tx.select().from(orders).where(eq(orders.id, line.orderId));
+        if (!order) throw new Error("Line item not found.");
+        const [oldItem] = await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId));
+        if (!oldItem) throw new Error("Item not found.");
+
+        const { storeId, receiptNumber } = line;
+        const periods = await this.getPayrollPeriodsCoveringDate(storeId, new Date(line.createdAt));
+        if (periods.length > 0) {
+          const labels = periods.map((p) => `${p.startDate} – ${p.endDate} (${p.status})`).join(", ");
+          throw new Error(`Cannot edit this line — the sale falls within finalized payroll period(s): ${labels}. Reopen or amend the payroll period first.`);
+        }
+
+        const remaining = order.quantity - order.returnedQuantity;
+        if (remaining <= 0) throw new Error("This line has been fully returned and can no longer be edited.");
+        const oldUnitPrice = order.totalPrice / order.quantity;
+
+        const newInventoryId = data.inventoryId ?? order.inventoryId;
+        const newQty = data.quantity ?? remaining;
+        const newUnitPrice = data.unitPrice ?? oldUnitPrice;
+        if (!(newQty > 0)) throw new Error("Quantity must be greater than 0.");
+        if (!(newUnitPrice > 0)) throw new Error("Price must be greater than 0.");
+
+        const sameItem = newInventoryId === order.inventoryId;
+        const samePrice = Math.abs(newUnitPrice - oldUnitPrice) < 0.005;
+        const sameQty = Math.abs(newQty - remaining) < 0.00005;
+        const mode: "staff" | "partial_return" | "add_quantity" | "replace" =
+          sameItem && samePrice && sameQty ? "staff"
+            : sameItem && samePrice && newQty < remaining ? "partial_return"
+              : sameItem && samePrice ? "add_quantity"
+                : "replace";
+
+        let newItem = oldItem;
+        if (!sameItem) {
+          const [found] = await tx.select().from(inventory).where(eq(inventory.id, newInventoryId));
+          if (!found) throw new Error("Replacement item not found.");
+          if (found.storeId !== storeId) throw new Error("Replacement item belongs to a different store.");
+          newItem = found;
+        }
+        if (newItem.type === "supply") throw new Error(`"${newItem.name}" is a back-bar supply and cannot be sold.`);
+        if (oldItem.type !== newItem.type && (oldItem.type === "service" || newItem.type === "service")) {
+          throw new Error("A service can only be swapped for another service, and a product for a product.");
+        }
+        if (!newItem.allowFractional && newQty !== Math.floor(newQty)) {
+          throw new Error("This item does not allow fractional quantities.");
+        }
+
+        // Staff only applies to services; products carry none.
+        const isService = newItem.type === "service";
+        const staffIds = isService
+          ? [data.staff.leadStaffId, data.staff.assistingStaff1Id, data.staff.assistingStaff2Id].filter((x): x is string => !!x)
+          : [];
+        if (isService) {
+          if (!data.staff.leadStaffId) throw new Error("A service needs a lead staff member.");
+          if (data.staff.assistingStaff2Id && !data.staff.assistingStaff1Id) throw new Error("Fill Assistant #1 before Assistant #2.");
+          if (new Set(staffIds).size !== staffIds.length) throw new Error("A staff member can only be selected once per service.");
+          const members = await tx.select().from(staff).where(inArray(staff.id, staffIds));
+          if (members.length !== staffIds.length || members.some((m) => m.storeId !== storeId)) {
+            throw new Error("Every selected staff member must belong to this store.");
+          }
+        }
+        const split: "standard" | "equal" = staffIds.length > 1 ? (data.commissionSplit ?? (line.commissionSplit as "standard" | "equal")) : "standard";
+
+        const previousValues: Record<string, unknown> = {
+          inventoryId: order.inventoryId, quantity: remaining, unitPrice: oldUnitPrice,
+          staffIds: [line.leadStaffId, line.assistingStaff1Id, line.assistingStaff2Id].filter(Boolean),
+          commissionSplit: line.commissionSplit,
+        };
+        const newValues: Record<string, unknown> = {
+          inventoryId: newInventoryId, quantity: newQty, unitPrice: newUnitPrice, staffIds, commissionSplit: split,
+        };
+
+        const needsSettlement = mode !== "staff";
+        if (needsSettlement && !data.settlementMethod) throw new Error("Choose how the difference is settled.");
+        if (mode === "replace" && data.settlementMethod === "credit") {
+          throw new Error("Credit can't settle an amended line. Pick cash, transfer or store credit, or use Add missed item for a balance due.");
+        }
+        const method = data.settlementMethod ?? "cash";
+
+        let cashRefund = 0;
+        const unitCharged = line.totalCharged / order.quantity;
+
+        const applyStaffToLine = async () => {
+          await tx.update(checkouts).set({
+            leadStaffId: isService ? staffIds[0] ?? null : line.leadStaffId,
+            assistingStaff1Id: isService ? staffIds[1] ?? null : line.assistingStaff1Id,
+            assistingStaff2Id: isService ? staffIds[2] ?? null : line.assistingStaff2Id,
+            commissionSplit: isService ? split : line.commissionSplit,
+          }).where(eq(checkouts.id, line.id));
+        };
+
+        const returnLeg = async (qty: number) => {
+          const refundAmount = unitCharged * qty;
+          const r = await this.returnInTx(tx, {
+            storeId,
+            checkoutId: line.id,
+            items: [{ orderId: order.id, quantity: qty, restock: oldItem.type === "product" }],
+            refundMethod: method,
+            refundAmount,
+            reason: data.reason,
+            userId: data.userId,
+            staffId: line.staffId ?? "",
+          });
+          if (method === "cash") cashRefund += r.totalRefund;
+        };
+
+        const addLeg = async (qty: number) => {
+          await this.addendumInTx(tx, {
+            originalCheckoutId: line.id,
+            inventoryId: newInventoryId,
+            quantity: qty,
+            customPrice: newUnitPrice,
+            staffId: line.staffId ?? data.userId,
+            leadStaffId: isService ? staffIds[0] : undefined,
+            assistingStaff1Id: isService ? staffIds[1] : undefined,
+            assistingStaff2Id: isService ? staffIds[2] : undefined,
+            commissionSplit: split,
+            paymentMethod: method,
+            reason: data.reason,
+            userId: data.userId,
+          });
+        };
+
+        if (mode === "staff") {
+          await applyStaffToLine();
+        } else if (mode === "partial_return") {
+          await returnLeg(remaining - newQty);
+          await applyStaffToLine();
+        } else if (mode === "add_quantity") {
+          await applyStaffToLine();
+          await addLeg(newQty - remaining);
+        } else {
+          // Return first so a store-credit settlement has the refunded balance
+          // available when the replacement is charged against it.
+          await returnLeg(remaining);
+          await addLeg(newQty);
+        }
+
+        out = { storeId, receiptNumber, mode, cashRefund, previousValues, newValues };
+      });
+
+      return { success: true, message: "Line updated.", ...out! };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update this line.";
+      return { success: false, message };
+    }
+  }
+
+  // ─── addendumInTx / processAddendum ───────────────────────────────────────
+  // Shared by processAddendum and amendLine so an amended line is booked by the
+  // exact same code path as a missed item (stock, consumables, P&L, payment).
+  private async addendumInTx(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], data: {
+    originalCheckoutId: string;
+    inventoryId: string;
+    quantity: number;
+    customPrice?: number;
+    staffId: string;
+    leadStaffId?: string;
+    assistingStaff1Id?: string;
+    assistingStaff2Id?: string;
+    paymentMethod: "cash" | "transfer" | "credit" | "store_credit";
+    reason: string;
+    userId: string;
+    commissionSplit?: "standard" | "equal";
+  }): Promise<{ checkoutId: string; storeId: string }> {
+    let newCheckoutId = "";
+    let addendumStoreId = "";
+    // 1. Fetch and validate original receipt context
+    const [originalCheckout] = await tx.select().from(checkouts).where(eq(checkouts.id, data.originalCheckoutId));
+    if (!originalCheckout) throw new Error("Transaction not found.");
+    if (originalCheckout.isVoided) throw new Error("Cannot add items to a voided transaction.");
+
+    const receiptCheckouts = await tx.select().from(checkouts)
+      .where(eq(checkouts.receiptNumber, originalCheckout.receiptNumber));
+    if (receiptCheckouts.some(c => c.paymentStatus === "pending")) {
+      throw new Error("Cannot add items while a payment is still pending on this receipt.");
+    }
+
+    const { receiptNumber, storeId } = originalCheckout;
+    addendumStoreId = storeId;
+
+    // Resolve customerId from original transaction
+    const [originalTx] = await tx.select().from(transactions)
+      .where(eq(transactions.checkoutId, data.originalCheckoutId));
+    if (!originalTx) throw new Error("Could not resolve customer for this transaction.");
+    const { customerId } = originalTx;
+
+    // Find the first non-addendum checkoutId under this receipt (for credit entry linking)
+    const sortedCheckouts = [...receiptCheckouts].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    const primaryCheckout = sortedCheckouts.find(c => !c.isAddendum) ?? sortedCheckouts[0];
+    const primaryCheckoutId = primaryCheckout.id;
+    const originalSaleDate = new Date(primaryCheckout.createdAt);
+
+    // 2. Fetch and validate inventory (with row lock)
+    const [inv] = await tx.select().from(inventory)
+      .where(eq(inventory.id, data.inventoryId))
+      .for("update");
+    if (!inv) throw new Error("Item not found.");
+    if (inv.type === "supply") {
+      throw new Error(`"${inv.name}" is a back-bar supply and cannot be sold.`);
+    }
+    if (inv.type === "product" && Number(inv.quantity) < data.quantity) {
+      throw new Error(`Insufficient stock. Only ${inv.quantity} unit(s) available.`);
+    }
+
+    // 3. Fetch store tax rate
+    const storeTaxRates = await tx.select().from(taxRates).where(eq(taxRates.storeId, storeId));
+    const defaultTax = storeTaxRates.find(r => r.isDefault);
+    const taxRatePercent = defaultTax ? Number(defaultTax.rate) : 0;
+
+    // 4. Calculate amounts
+    const unitPrice = data.customPrice != null ? data.customPrice : Number(inv.sellingPrice);
+    const lineSubtotal = unitPrice * data.quantity;
+    const lineTax = lineSubtotal * (taxRatePercent / 100);
+    const totalCharged = lineSubtotal + lineTax;
+
+    // 5. Create order
+    const [order] = await tx.insert(orders).values({
+      storeId,
+      inventoryId: data.inventoryId,
+      quantity: data.quantity,
+      totalPrice: lineSubtotal,
+      taxApplied: lineTax,
+    }).returning();
+
+    // 6. Create checkout (same receiptNumber, isAddendum: true)
+    const [newCheckout] = await tx.insert(checkouts).values({
+      storeId,
+      staffId: data.staffId,
+      leadStaffId: data.leadStaffId ?? null,
+      assistingStaff1Id: data.assistingStaff1Id ?? null,
+      assistingStaff2Id: data.assistingStaff2Id ?? null,
+      commissionSplit: data.commissionSplit ?? "standard",
+      orderId: order.id,
+      receiptNumber,
+      totalPrice: lineSubtotal,
+      subtotal: lineSubtotal,
+      totalCharged,
+      taxTotal: lineTax,
+      paymentMethod: data.paymentMethod,
+      paymentStatus: "completed",
+      isAddendum: true,
+      addendumReason: data.reason,
+      createdAt: originalSaleDate,
+    }).returning();
+
+    newCheckoutId = newCheckout.id;
+
+    // 7. Create transaction row
+    await tx.insert(transactions).values({
+      storeId,
+      customerId,
+      inventoryId: data.inventoryId,
+      checkoutId: newCheckout.id,
+      amount: totalCharged,
+      transactionDate: originalSaleDate,
+    });
+
+    // 8. Decrement inventory only for products
+    if (inv.type === "product") {
+      await adjustStock(tx, {
+        storeId,
+        inventoryId: data.inventoryId,
+        delta: -data.quantity,
+        reason: "sale",
+        refType: "order",
+        refId: order.id,
+        note: "Addendum to a past sale",
+      });
+      await this.inventoryRepo.deductFIFO(data.inventoryId, data.quantity, tx);
+    }
+
+    // 8b. Consumables for the added line.
+    //
+    // No date column is needed on order_consumables: this checkout is written
+    // with `createdAt: originalSaleDate`, so the date the P&L derives through
+    // the join already lands in the original period — which is the whole point
+    // of the addendum feature.
+    const addendumRecipes = await this.consumablesRepo.getActiveRecipes([data.inventoryId]);
+    if (addendumRecipes.size > 0) {
+      const supplyIds = Array.from(
+        new Set(Array.from(addendumRecipes.values()).flat().map(r => r.supplyInventoryId)),
+      ).sort();
+
+      const lockedSupplies = await tx
+        .select()
+        .from(inventory)
+        .where(inArray(inventory.id, supplyIds))
+        .orderBy(asc(inventory.id))
+        .for("update");
+
+      const addendumCosts = new Map(lockedSupplies.map(s => [s.id, Number(s.costPrice)]));
+      const { rows: addendumRows, deductions } = expandConsumables(
+        [{ orderId: order.id, inventoryId: data.inventoryId, quantity: data.quantity }],
+        addendumRecipes,
+        addendumCosts,
+      );
+
+      if (addendumRows.length > 0) {
+        await tx.insert(orderConsumables).values(
+          addendumRows.map(r => ({
+            storeId,
+            orderId: r.orderId,
+            supplyInventoryId: r.supplyInventoryId,
+            quantityUsed: r.quantityUsed,
+            unitCostAtSale: r.unitCostAtSale,
+            totalCost: r.totalCost,
+          })),
+        );
+      }
+
+      // Negative stock is allowed here for the same reason it is at checkout.
+      for (const [supplyId, used] of Array.from(deductions.entries())) {
+        await adjustStock(tx, {
+          storeId,
+          inventoryId: supplyId,
+          delta: -used,
+          reason: "consumable_use",
+          refType: "order",
+          refId: order.id,
+          note: "Addendum to a past sale",
+        });
+      }
+    }
+
+    // 9. Update profit/loss
+    const costPrice = Number(inv.costPrice) || 0;
+    const profit = lineSubtotal - costPrice * data.quantity;
+    const [existingPL] = await tx.select().from(profitLoss)
+      .where(and(eq(profitLoss.inventoryId, data.inventoryId), eq(profitLoss.storeId, storeId)));
+    if (existingPL) {
+      await tx.update(profitLoss)
+        .set({
+          totalQuantitySold: existingPL.totalQuantitySold + data.quantity,
+          quantityRemaining: Number(inv.quantity) - data.quantity,
+          totalRevenue: existingPL.totalRevenue + lineSubtotal,
+          totalGrossProfit: existingPL.totalGrossProfit + profit,
+        })
+        .where(eq(profitLoss.id, existingPL.id));
+    } else {
+      await tx.insert(profitLoss).values({
+        storeId,
+        inventoryId: data.inventoryId,
+        totalQuantitySold: data.quantity,
+        quantityRemaining: Number(inv.quantity) - data.quantity,
+        totalRevenue: lineSubtotal,
+        totalGrossProfit: profit,
+      });
+    }
+
+    // 10. Handle payment side-effects
+    if (data.paymentMethod === "cash") {
+      const [activeSession] = await tx.select().from(cashRegisterSessions)
+        .where(and(eq(cashRegisterSessions.storeId, storeId), eq(cashRegisterSessions.status, "open")));
+      if (activeSession) {
+        await tx.update(cashRegisterSessions)
+          .set({ expectedCash: sql`${cashRegisterSessions.expectedCash} + ${totalCharged}` })
+          .where(eq(cashRegisterSessions.id, activeSession.id));
+      }
+    } else if (data.paymentMethod === "credit") {
+      // Link to the primary (non-addendum) checkoutId so credit history stays grouped per receipt
+      await tx.insert(creditEntries).values({
+        storeId,
+        customerId,
+        amountOwed: totalCharged,
+        amountPaidUpfront: 0,
+        outstandingBalance: totalCharged,
+        description: `Addendum to Receipt #${receiptNumber}`,
+        linkedTransactionId: primaryCheckoutId,
+        status: "owing",
+        notes: `Addendum item added after sale — ${data.reason}`,
+      });
+    } else if (data.paymentMethod === "store_credit") {
+      const [customer] = await tx.select().from(customers).where(eq(customers.id, customerId));
+      if (!customer) throw new Error("Customer not found.");
+      if (Number(customer.storeCreditBalance || 0) < totalCharged) {
+        throw new Error(`Insufficient store credit. Available: ${customer.storeCreditBalance || 0}`);
+      }
+      await tx.update(customers)
+        .set({ storeCreditBalance: sql`${customers.storeCreditBalance} - ${totalCharged}` })
+        .where(eq(customers.id, customerId));
+      await tx.insert(storeCreditTransactions).values({
+        customerId,
+        storeId,
+        amount: -totalCharged,
+        type: "purchase_redemption",
+        checkoutId: newCheckout.id,
+      });
+    }
+    return { checkoutId: newCheckoutId, storeId: addendumStoreId };
+  }
+
   async processAddendum(data: {
     originalCheckoutId: string;
     inventoryId: string;
@@ -1696,237 +2140,13 @@ export class SalesRepository {
     paymentMethod: "cash" | "transfer" | "credit" | "store_credit";
     reason: string;
     userId: string;
+    commissionSplit?: "standard" | "equal";
   }): Promise<{ success: boolean; message: string; checkoutId?: string; payrollWarning?: string }> {
     try {
-      let newCheckoutId = "";
-      let addendumStoreId = "";
       let payrollWarning: string | undefined;
 
-      await db.transaction(async (tx) => {
-        // 1. Fetch and validate original receipt context
-        const [originalCheckout] = await tx.select().from(checkouts).where(eq(checkouts.id, data.originalCheckoutId));
-        if (!originalCheckout) throw new Error("Transaction not found.");
-        if (originalCheckout.isVoided) throw new Error("Cannot add items to a voided transaction.");
-
-        const receiptCheckouts = await tx.select().from(checkouts)
-          .where(eq(checkouts.receiptNumber, originalCheckout.receiptNumber));
-        if (receiptCheckouts.some(c => c.paymentStatus === "pending")) {
-          throw new Error("Cannot add items while a payment is still pending on this receipt.");
-        }
-
-        const { receiptNumber, storeId } = originalCheckout;
-        addendumStoreId = storeId;
-
-        // Resolve customerId from original transaction
-        const [originalTx] = await tx.select().from(transactions)
-          .where(eq(transactions.checkoutId, data.originalCheckoutId));
-        if (!originalTx) throw new Error("Could not resolve customer for this transaction.");
-        const { customerId } = originalTx;
-
-        // Find the first non-addendum checkoutId under this receipt (for credit entry linking)
-        const sortedCheckouts = [...receiptCheckouts].sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        );
-        const primaryCheckout = sortedCheckouts.find(c => !c.isAddendum) ?? sortedCheckouts[0];
-        const primaryCheckoutId = primaryCheckout.id;
-        const originalSaleDate = new Date(primaryCheckout.createdAt);
-
-        // 2. Fetch and validate inventory (with row lock)
-        const [inv] = await tx.select().from(inventory)
-          .where(eq(inventory.id, data.inventoryId))
-          .for("update");
-        if (!inv) throw new Error("Item not found.");
-        if (inv.type === "supply") {
-          throw new Error(`"${inv.name}" is a back-bar supply and cannot be sold.`);
-        }
-        if (inv.type === "product" && Number(inv.quantity) < data.quantity) {
-          throw new Error(`Insufficient stock. Only ${inv.quantity} unit(s) available.`);
-        }
-
-        // 3. Fetch store tax rate
-        const storeTaxRates = await tx.select().from(taxRates).where(eq(taxRates.storeId, storeId));
-        const defaultTax = storeTaxRates.find(r => r.isDefault);
-        const taxRatePercent = defaultTax ? Number(defaultTax.rate) : 0;
-
-        // 4. Calculate amounts
-        const unitPrice = data.customPrice != null ? data.customPrice : Number(inv.sellingPrice);
-        const lineSubtotal = unitPrice * data.quantity;
-        const lineTax = lineSubtotal * (taxRatePercent / 100);
-        const totalCharged = lineSubtotal + lineTax;
-
-        // 5. Create order
-        const [order] = await tx.insert(orders).values({
-          storeId,
-          inventoryId: data.inventoryId,
-          quantity: data.quantity,
-          totalPrice: lineSubtotal,
-          taxApplied: lineTax,
-        }).returning();
-
-        // 6. Create checkout (same receiptNumber, isAddendum: true)
-        const [newCheckout] = await tx.insert(checkouts).values({
-          storeId,
-          staffId: data.staffId,
-          leadStaffId: data.leadStaffId ?? null,
-          assistingStaff1Id: data.assistingStaff1Id ?? null,
-          assistingStaff2Id: data.assistingStaff2Id ?? null,
-          orderId: order.id,
-          receiptNumber,
-          totalPrice: lineSubtotal,
-          subtotal: lineSubtotal,
-          totalCharged,
-          taxTotal: lineTax,
-          paymentMethod: data.paymentMethod,
-          paymentStatus: "completed",
-          isAddendum: true,
-          addendumReason: data.reason,
-          createdAt: originalSaleDate,
-        }).returning();
-
-        newCheckoutId = newCheckout.id;
-
-        // 7. Create transaction row
-        await tx.insert(transactions).values({
-          storeId,
-          customerId,
-          inventoryId: data.inventoryId,
-          checkoutId: newCheckout.id,
-          amount: totalCharged,
-          transactionDate: originalSaleDate,
-        });
-
-        // 8. Decrement inventory only for products
-        if (inv.type === "product") {
-          await adjustStock(tx, {
-            storeId,
-            inventoryId: data.inventoryId,
-            delta: -data.quantity,
-            reason: "sale",
-            refType: "order",
-            refId: order.id,
-            note: "Addendum to a past sale",
-          });
-          await this.inventoryRepo.deductFIFO(data.inventoryId, data.quantity, tx);
-        }
-
-        // 8b. Consumables for the added line.
-        //
-        // No date column is needed on order_consumables: this checkout is written
-        // with `createdAt: originalSaleDate`, so the date the P&L derives through
-        // the join already lands in the original period — which is the whole point
-        // of the addendum feature.
-        const addendumRecipes = await this.consumablesRepo.getActiveRecipes([data.inventoryId]);
-        if (addendumRecipes.size > 0) {
-          const supplyIds = Array.from(
-            new Set(Array.from(addendumRecipes.values()).flat().map(r => r.supplyInventoryId)),
-          ).sort();
-
-          const lockedSupplies = await tx
-            .select()
-            .from(inventory)
-            .where(inArray(inventory.id, supplyIds))
-            .orderBy(asc(inventory.id))
-            .for("update");
-
-          const addendumCosts = new Map(lockedSupplies.map(s => [s.id, Number(s.costPrice)]));
-          const { rows: addendumRows, deductions } = expandConsumables(
-            [{ orderId: order.id, inventoryId: data.inventoryId, quantity: data.quantity }],
-            addendumRecipes,
-            addendumCosts,
-          );
-
-          if (addendumRows.length > 0) {
-            await tx.insert(orderConsumables).values(
-              addendumRows.map(r => ({
-                storeId,
-                orderId: r.orderId,
-                supplyInventoryId: r.supplyInventoryId,
-                quantityUsed: r.quantityUsed,
-                unitCostAtSale: r.unitCostAtSale,
-                totalCost: r.totalCost,
-              })),
-            );
-          }
-
-          // Negative stock is allowed here for the same reason it is at checkout.
-          for (const [supplyId, used] of Array.from(deductions.entries())) {
-            await adjustStock(tx, {
-              storeId,
-              inventoryId: supplyId,
-              delta: -used,
-              reason: "consumable_use",
-              refType: "order",
-              refId: order.id,
-              note: "Addendum to a past sale",
-            });
-          }
-        }
-
-        // 9. Update profit/loss
-        const costPrice = Number(inv.costPrice) || 0;
-        const profit = lineSubtotal - costPrice * data.quantity;
-        const [existingPL] = await tx.select().from(profitLoss)
-          .where(and(eq(profitLoss.inventoryId, data.inventoryId), eq(profitLoss.storeId, storeId)));
-        if (existingPL) {
-          await tx.update(profitLoss)
-            .set({
-              totalQuantitySold: existingPL.totalQuantitySold + data.quantity,
-              quantityRemaining: Number(inv.quantity) - data.quantity,
-              totalRevenue: existingPL.totalRevenue + lineSubtotal,
-              totalGrossProfit: existingPL.totalGrossProfit + profit,
-            })
-            .where(eq(profitLoss.id, existingPL.id));
-        } else {
-          await tx.insert(profitLoss).values({
-            storeId,
-            inventoryId: data.inventoryId,
-            totalQuantitySold: data.quantity,
-            quantityRemaining: Number(inv.quantity) - data.quantity,
-            totalRevenue: lineSubtotal,
-            totalGrossProfit: profit,
-          });
-        }
-
-        // 10. Handle payment side-effects
-        if (data.paymentMethod === "cash") {
-          const [activeSession] = await tx.select().from(cashRegisterSessions)
-            .where(and(eq(cashRegisterSessions.storeId, storeId), eq(cashRegisterSessions.status, "open")));
-          if (activeSession) {
-            await tx.update(cashRegisterSessions)
-              .set({ expectedCash: sql`${cashRegisterSessions.expectedCash} + ${totalCharged}` })
-              .where(eq(cashRegisterSessions.id, activeSession.id));
-          }
-        } else if (data.paymentMethod === "credit") {
-          // Link to the primary (non-addendum) checkoutId so credit history stays grouped per receipt
-          await tx.insert(creditEntries).values({
-            storeId,
-            customerId,
-            amountOwed: totalCharged,
-            amountPaidUpfront: 0,
-            outstandingBalance: totalCharged,
-            description: `Addendum to Receipt #${receiptNumber}`,
-            linkedTransactionId: primaryCheckoutId,
-            status: "owing",
-            notes: `Addendum item added after sale — ${data.reason}`,
-          });
-        } else if (data.paymentMethod === "store_credit") {
-          const [customer] = await tx.select().from(customers).where(eq(customers.id, customerId));
-          if (!customer) throw new Error("Customer not found.");
-          if (Number(customer.storeCreditBalance || 0) < totalCharged) {
-            throw new Error(`Insufficient store credit. Available: ${customer.storeCreditBalance || 0}`);
-          }
-          await tx.update(customers)
-            .set({ storeCreditBalance: sql`${customers.storeCreditBalance} - ${totalCharged}` })
-            .where(eq(customers.id, customerId));
-          await tx.insert(storeCreditTransactions).values({
-            customerId,
-            storeId,
-            amount: -totalCharged,
-            type: "purchase_redemption",
-            checkoutId: newCheckout.id,
-          });
-        }
-      });
+      const { checkoutId: newCheckoutId, storeId: addendumStoreId } =
+        await db.transaction((tx) => this.addendumInTx(tx, data));
 
       // Payroll warning: check if today falls in a finalized payroll period
       const affectedPeriods = await this.getPayrollPeriodsCoveringDate(addendumStoreId, new Date());
@@ -1942,7 +2162,193 @@ export class SalesRepository {
     }
   }
 
-  // ─── processReturn ────────────────────────────────────────────────────────
+  // ─── returnInTx / processReturn ───────────────────────────────────────────
+  // Shared by processReturn and amendLine so an amended line is returned by the
+  // exact same code path as a customer return (stock, P&L, refund log).
+  private async returnInTx(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], data: {
+    storeId: string;
+    checkoutId: string;
+    items: Array<{ orderId: string; quantity: number; restock: boolean }>;
+    refundMethod: string;
+    refundAmount: number;
+    reason: string;
+    userId: string;
+    staffId: string;
+  }): Promise<{ returnLogIds: string[]; totalRefund: number }> {
+    const returnLogIds: string[] = [];
+    const [checkout] = await tx.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
+    if (!checkout) throw new Error("Transaction not found.");
+    if (checkout.isVoided) throw new Error("Cannot return items from a voided transaction.");
+
+    let customerProfile: any = null;
+    const [txRow] = await tx.select().from(transactions).where(eq(transactions.checkoutId, checkout.id)).limit(1);
+    if (txRow && txRow.customerId) {
+      const [cust] = await tx.select().from(customers).where(eq(customers.id, txRow.customerId));
+      customerProfile = cust;
+    }
+
+    if (data.refundMethod === "store_credit" && (!txRow || !txRow.customerId)) {
+      throw new Error("A profiled customer is required to issue store credit.");
+    }
+
+    let calculatedTotalRefund = 0;
+
+    for (const item of data.items) {
+      const [order] = await tx.select().from(orders).where(eq(orders.id, item.orderId));
+      if (!order) throw new Error(`Line item not found: ${item.orderId}`);
+
+      const maxAvailable = order.quantity - order.returnedQuantity;
+      if (item.quantity <= 0 || item.quantity > maxAvailable) {
+        throw new Error(`Invalid return quantity (${item.quantity}). Max available: ${maxAvailable}`);
+      }
+
+      // Refund against what was actually charged (checkouts.totalCharged — net of
+      // discount, inclusive of tax), not orders.totalPrice, which is the raw
+      // pre-discount, pre-tax line total. Refunding against totalPrice silently
+      // shorted the customer the tax (and discount) they actually paid, with no
+      // ledger entry anywhere for the difference.
+      const [lineCheckout] = await tx.select().from(checkouts).where(eq(checkouts.orderId, order.id));
+      if (!lineCheckout) throw new Error(`Checkout not found for line item: ${item.orderId}`);
+
+      const unitCharged = lineCheckout.totalCharged / order.quantity;
+      const lineRefundAmount = unitCharged * item.quantity;
+      calculatedTotalRefund += lineRefundAmount;
+
+      const unitTax = (lineCheckout.taxTotal || 0) / order.quantity;
+      const lineTaxRefund = unitTax * item.quantity;
+
+      let restockEventId: string | null = null;
+
+      // Consumables are deliberately NOT touched here, and this is not an
+      // oversight — do not "fix" it.
+      //
+      // A refunded haircut still consumed the shampoo. The product is gone, so
+      // the supply is not restocked and its cost is not reversed: the full
+      // original consumable cost stands while the revenue drops away. That is
+      // exactly the margin signal an owner needs, because returns really do
+      // cost twice.
+      //
+      // Note a full return is NOT a void — checkouts.isVoided stays false, so
+      // the consumable cost correctly remains counted. If the service genuinely
+      // never happened, the right operation is a void, not a return.
+      const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId));
+      if (inventoryItem && inventoryItem.type === "product" && item.restock) {
+        const newQty = inventoryItem.quantity + item.quantity;
+        const [restockEvent] = await tx.insert(inventoryRestockEvents).values({
+          storeId: data.storeId,
+          inventoryId: inventoryItem.id,
+          quantityAdded: item.quantity,
+          previousQuantity: inventoryItem.quantity,
+          newQuantity: newQty,
+          unitCost: inventoryItem.costPrice || 0,
+          previousCostPrice: inventoryItem.costPrice || 0,
+          newCostPrice: inventoryItem.costPrice || 0,
+          previousSellingPrice: inventoryItem.sellingPrice || 0,
+          newSellingPrice: inventoryItem.sellingPrice || 0,
+          costStrategy: "keep",
+          notes: `Customer return from receipt ${checkout.receiptNumber}`,
+          reason: "Returned Stock",
+          staffId: data.staffId || null,
+          userId: data.userId || null,
+        }).returning();
+
+        restockEventId = restockEvent.id;
+
+        await adjustStock(tx, {
+          storeId: data.storeId,
+          inventoryId: inventoryItem.id,
+          delta: item.quantity,
+          reason: "sale_return",
+          refType: "receipt",
+          refId: checkout.receiptNumber,
+          actorStaffId: data.staffId || null,
+          actorUserId: data.userId || null,
+        });
+
+        // Log inventory activity for product return/restock
+        auditLogger.logDataModification(
+          "inventory",
+          inventoryItem.id,
+          data.userId || data.staffId,
+          "SALE_RETURN_RESTOCK",
+          true,
+          undefined,
+          { quantityRestocked: item.quantity, newQuantity: inventoryItem.quantity + item.quantity }
+        );
+      }
+
+      const beforeQty = inventoryItem ? inventoryItem.quantity : 0;
+      const afterQty = inventoryItem ? (inventoryItem.quantity + (item.restock && inventoryItem.type === "product" ? item.quantity : 0)) : 0;
+
+      const [log] = await tx.insert(returnLogs).values({
+        storeId: data.storeId,
+        checkoutId: checkout.id,
+        orderId: order.id,
+        quantity: item.quantity,
+        refundAmount: lineRefundAmount,
+        taxRefundAmount: lineTaxRefund,
+        refundMethod: data.refundMethod,
+        reason: data.reason,
+        staffId: data.staffId || null,
+        userId: data.userId || null,
+        restockEventId,
+        inventoryQuantityBeforeReturn: beforeQty,
+        inventoryQuantityAfterReturn: afterQty,
+      }).returning();
+
+      returnLogIds.push(log.id);
+
+      await tx.update(orders)
+        .set({
+          returnedQuantity: order.returnedQuantity + item.quantity,
+          refundedAmount: order.refundedAmount + lineRefundAmount,
+          taxRefunded: (order.taxRefunded || 0) + lineTaxRefund,
+        })
+        .where(eq(orders.id, order.id));
+
+      if (inventoryItem) {
+        const [existingPL] = await tx.select().from(profitLoss)
+          .where(and(eq(profitLoss.inventoryId, inventoryItem.id), eq(profitLoss.storeId, data.storeId)));
+        if (existingPL) {
+          // profitLoss.totalRevenue is built from orders.totalPrice (pre-discount,
+          // pre-tax) at sale time — decrement against that same basis, not the
+          // tax/discount-inclusive customer refund amount above.
+          const lineRevenuePortion = (order.totalPrice / order.quantity) * item.quantity;
+          const profit = lineRevenuePortion - (inventoryItem.costPrice || 0) * item.quantity;
+          await tx.update(profitLoss)
+            .set({
+              totalQuantitySold: Math.max(0, existingPL.totalQuantitySold - item.quantity),
+              quantityRemaining: existingPL.quantityRemaining + (item.restock && inventoryItem.type === "product" ? item.quantity : 0),
+              totalRevenue: Math.max(0, existingPL.totalRevenue - lineRevenuePortion),
+              totalGrossProfit: existingPL.totalGrossProfit - profit,
+            })
+            .where(eq(profitLoss.id, existingPL.id));
+        }
+      }
+    }
+
+    if (data.refundAmount > calculatedTotalRefund + 0.01) {
+      throw new Error(`Refund amount exceeds the maximum value of returned items (${calculatedTotalRefund.toFixed(2)}).`);
+    }
+
+    await tx.update(checkouts).set({ isPartiallyReturned: true }).where(eq(checkouts.id, checkout.id));
+
+    if (data.refundMethod === "store_credit" && customerProfile) {
+      await tx.update(customers)
+        .set({ storeCreditBalance: (customerProfile.storeCreditBalance || 0) + data.refundAmount })
+        .where(eq(customers.id, customerProfile.id));
+
+      await tx.insert(storeCreditTransactions).values({
+        customerId: customerProfile.id,
+        storeId: data.storeId,
+        amount: data.refundAmount,
+        type: "issued_refund",
+        checkoutId: checkout.id,
+      });
+    }
+    return { returnLogIds, totalRefund: calculatedTotalRefund };
+  }
+
   async processReturn(data: {
     storeId: string;
     checkoutId: string;
@@ -1954,180 +2360,7 @@ export class SalesRepository {
     staffId: string;
   }): Promise<{ success: boolean; message: string; returnLogIds?: string[] }> {
     try {
-      const returnLogIds: string[] = [];
-
-      await db.transaction(async (tx) => {
-        const [checkout] = await tx.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
-        if (!checkout) throw new Error("Transaction not found.");
-        if (checkout.isVoided) throw new Error("Cannot return items from a voided transaction.");
-
-        let customerProfile: any = null;
-        const [txRow] = await tx.select().from(transactions).where(eq(transactions.checkoutId, checkout.id)).limit(1);
-        if (txRow && txRow.customerId) {
-          const [cust] = await tx.select().from(customers).where(eq(customers.id, txRow.customerId));
-          customerProfile = cust;
-        }
-
-        if (data.refundMethod === "store_credit" && (!txRow || !txRow.customerId)) {
-          throw new Error("A profiled customer is required to issue store credit.");
-        }
-
-        let calculatedTotalRefund = 0;
-
-        for (const item of data.items) {
-          const [order] = await tx.select().from(orders).where(eq(orders.id, item.orderId));
-          if (!order) throw new Error(`Line item not found: ${item.orderId}`);
-
-          const maxAvailable = order.quantity - order.returnedQuantity;
-          if (item.quantity <= 0 || item.quantity > maxAvailable) {
-            throw new Error(`Invalid return quantity (${item.quantity}). Max available: ${maxAvailable}`);
-          }
-
-          // Refund against what was actually charged (checkouts.totalCharged — net of
-          // discount, inclusive of tax), not orders.totalPrice, which is the raw
-          // pre-discount, pre-tax line total. Refunding against totalPrice silently
-          // shorted the customer the tax (and discount) they actually paid, with no
-          // ledger entry anywhere for the difference.
-          const [lineCheckout] = await tx.select().from(checkouts).where(eq(checkouts.orderId, order.id));
-          if (!lineCheckout) throw new Error(`Checkout not found for line item: ${item.orderId}`);
-
-          const unitCharged = lineCheckout.totalCharged / order.quantity;
-          const lineRefundAmount = unitCharged * item.quantity;
-          calculatedTotalRefund += lineRefundAmount;
-
-          const unitTax = (lineCheckout.taxTotal || 0) / order.quantity;
-          const lineTaxRefund = unitTax * item.quantity;
-
-          let restockEventId: string | null = null;
-
-          // Consumables are deliberately NOT touched here, and this is not an
-          // oversight — do not "fix" it.
-          //
-          // A refunded haircut still consumed the shampoo. The product is gone, so
-          // the supply is not restocked and its cost is not reversed: the full
-          // original consumable cost stands while the revenue drops away. That is
-          // exactly the margin signal an owner needs, because returns really do
-          // cost twice.
-          //
-          // Note a full return is NOT a void — checkouts.isVoided stays false, so
-          // the consumable cost correctly remains counted. If the service genuinely
-          // never happened, the right operation is a void, not a return.
-          const [inventoryItem] = await tx.select().from(inventory).where(eq(inventory.id, order.inventoryId));
-          if (inventoryItem && inventoryItem.type === "product" && item.restock) {
-            const newQty = inventoryItem.quantity + item.quantity;
-            const [restockEvent] = await tx.insert(inventoryRestockEvents).values({
-              storeId: data.storeId,
-              inventoryId: inventoryItem.id,
-              quantityAdded: item.quantity,
-              previousQuantity: inventoryItem.quantity,
-              newQuantity: newQty,
-              unitCost: inventoryItem.costPrice || 0,
-              previousCostPrice: inventoryItem.costPrice || 0,
-              newCostPrice: inventoryItem.costPrice || 0,
-              previousSellingPrice: inventoryItem.sellingPrice || 0,
-              newSellingPrice: inventoryItem.sellingPrice || 0,
-              costStrategy: "keep",
-              notes: `Customer return from receipt ${checkout.receiptNumber}`,
-              reason: "Returned Stock",
-              staffId: data.staffId || null,
-              userId: data.userId || null,
-            }).returning();
-
-            restockEventId = restockEvent.id;
-
-            await adjustStock(tx, {
-              storeId: data.storeId,
-              inventoryId: inventoryItem.id,
-              delta: item.quantity,
-              reason: "sale_return",
-              refType: "receipt",
-              refId: checkout.receiptNumber,
-              actorStaffId: data.staffId || null,
-              actorUserId: data.userId || null,
-            });
-
-            // Log inventory activity for product return/restock
-            auditLogger.logDataModification(
-              "inventory",
-              inventoryItem.id,
-              data.userId || data.staffId,
-              "SALE_RETURN_RESTOCK",
-              true,
-              undefined,
-              { quantityRestocked: item.quantity, newQuantity: inventoryItem.quantity + item.quantity }
-            );
-          }
-
-          const beforeQty = inventoryItem ? inventoryItem.quantity : 0;
-          const afterQty = inventoryItem ? (inventoryItem.quantity + (item.restock && inventoryItem.type === "product" ? item.quantity : 0)) : 0;
-
-          const [log] = await tx.insert(returnLogs).values({
-            storeId: data.storeId,
-            checkoutId: checkout.id,
-            orderId: order.id,
-            quantity: item.quantity,
-            refundAmount: lineRefundAmount,
-            taxRefundAmount: lineTaxRefund,
-            refundMethod: data.refundMethod,
-            reason: data.reason,
-            staffId: data.staffId || null,
-            userId: data.userId || null,
-            restockEventId,
-            inventoryQuantityBeforeReturn: beforeQty,
-            inventoryQuantityAfterReturn: afterQty,
-          }).returning();
-
-          returnLogIds.push(log.id);
-
-          await tx.update(orders)
-            .set({
-              returnedQuantity: order.returnedQuantity + item.quantity,
-              refundedAmount: order.refundedAmount + lineRefundAmount,
-              taxRefunded: (order.taxRefunded || 0) + lineTaxRefund,
-            })
-            .where(eq(orders.id, order.id));
-
-          if (inventoryItem) {
-            const [existingPL] = await tx.select().from(profitLoss)
-              .where(and(eq(profitLoss.inventoryId, inventoryItem.id), eq(profitLoss.storeId, data.storeId)));
-            if (existingPL) {
-              // profitLoss.totalRevenue is built from orders.totalPrice (pre-discount,
-              // pre-tax) at sale time — decrement against that same basis, not the
-              // tax/discount-inclusive customer refund amount above.
-              const lineRevenuePortion = (order.totalPrice / order.quantity) * item.quantity;
-              const profit = lineRevenuePortion - (inventoryItem.costPrice || 0) * item.quantity;
-              await tx.update(profitLoss)
-                .set({
-                  totalQuantitySold: Math.max(0, existingPL.totalQuantitySold - item.quantity),
-                  quantityRemaining: existingPL.quantityRemaining + (item.restock && inventoryItem.type === "product" ? item.quantity : 0),
-                  totalRevenue: Math.max(0, existingPL.totalRevenue - lineRevenuePortion),
-                  totalGrossProfit: existingPL.totalGrossProfit - profit,
-                })
-                .where(eq(profitLoss.id, existingPL.id));
-            }
-          }
-        }
-
-        if (data.refundAmount > calculatedTotalRefund + 0.01) {
-          throw new Error(`Refund amount exceeds the maximum value of returned items (${calculatedTotalRefund.toFixed(2)}).`);
-        }
-
-        await tx.update(checkouts).set({ isPartiallyReturned: true }).where(eq(checkouts.id, checkout.id));
-
-        if (data.refundMethod === "store_credit" && customerProfile) {
-          await tx.update(customers)
-            .set({ storeCreditBalance: (customerProfile.storeCreditBalance || 0) + data.refundAmount })
-            .where(eq(customers.id, customerProfile.id));
-
-          await tx.insert(storeCreditTransactions).values({
-            customerId: customerProfile.id,
-            storeId: data.storeId,
-            amount: data.refundAmount,
-            type: "issued_refund",
-            checkoutId: checkout.id,
-          });
-        }
-      });
+      const { returnLogIds } = await db.transaction((tx) => this.returnInTx(tx, data));
 
       const [checkout] = await db.select().from(checkouts).where(eq(checkouts.id, data.checkoutId));
       if (checkout) {

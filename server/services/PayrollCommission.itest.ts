@@ -167,3 +167,38 @@ describe("drill-down reconciliation", () => {
     expect(drilldown.reconciliation?.grossCommission).toBe(0);
   });
 });
+
+describe("returns", () => {
+  // A returned (or amended-away) service line must stop earning commission,
+  // otherwise "edit line" would pay both the original and its replacement.
+  it("nets returned quantity out of the commission base, in the entry and the drill-down", async () => {
+    const fx = await newStore();
+    cleanups.push(fx.cleanup);
+    const period = await createPeriod(fx.storeId, "2026-08-01", "2026-08-31");
+    await fx.sellAt(new Date("2026-08-05T10:00:00.000Z"), 5000);
+    await db.execute(`UPDATE orders SET returned_quantity = 1 WHERE store_id = '${fx.storeId}'`);
+
+    const [entry] = await payrollService.calculatePayrollForPeriod(period.id);
+    const drilldown = await payrollService.getPayrollDrillDown(period.id, fx.staffId);
+
+    expect((entry.calculationDetails as any)?.totalServiceRevenueContribution).toBe(0);
+    expect(drilldown.transactions.reduce((s, t) => s + t.revenueShare, 0)).toBe(0);
+  });
+
+  it("scales a partial return proportionally", async () => {
+    const fx = await newStore();
+    cleanups.push(fx.cleanup);
+    const period = await createPeriod(fx.storeId, "2026-08-01", "2026-08-31");
+    // 4 units sold for 4000, 1 returned -> 3000 stays commissionable.
+    const [order] = await db.insert(orders).values({
+      storeId: fx.storeId, inventoryId: fx.inventoryId, quantity: 4, totalPrice: 4000, returnedQuantity: 1,
+    }).returning();
+    await db.insert(checkouts).values({
+      storeId: fx.storeId, staffId: fx.staffId, leadStaffId: fx.staffId, orderId: order.id,
+      totalPrice: 4000, subtotal: 4000, createdAt: new Date("2026-08-05T10:00:00.000Z"),
+    });
+
+    const [entry] = await payrollService.calculatePayrollForPeriod(period.id);
+    expect((entry.calculationDetails as any)?.totalServiceRevenueContribution).toBe(3000);
+  });
+});

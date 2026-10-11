@@ -24,6 +24,22 @@ import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { Check, AlertCircle, Plus, PackageX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fetchAllStaff } from "@/lib/staff-api";
+import {
+  StaffAssignmentFields,
+  applyStaffChange,
+  type StaffAssignmentField,
+  type StaffAssignmentValue,
+} from "@/components/sale-line/StaffAssignmentFields";
+import { QuantityPriceControls } from "@/components/sale-line/QuantityPriceControls";
+
+const EMPTY_STAFF: StaffAssignmentValue = {
+  leadStaffId: null,
+  assistingStaff1Id: null,
+  assistingStaff2Id: null,
+  commissionSplit: "standard",
+  showAsst1: false,
+  showAsst2: false,
+};
 
 interface AddendumDialogProps {
   open: boolean;
@@ -55,12 +71,12 @@ export function AddendumDialog({
   const [quantity, setQuantity] = useState<string>("1");
   const [price, setPrice] = useState<string>("");
   const [staffId, setStaffId] = useState("");
-  const [leadStaffId, setLeadStaffId] = useState("");
+  const [staffAssign, setStaffAssign] = useState<StaffAssignmentValue>(EMPTY_STAFF);
   const [paymentMethod, setPaymentMethod] = useState<string>("cash");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [cartItems, setCartItems] = useState<
-    { key: string; item: any; quantity: number; price: number }[]
+    { key: string; item: any; quantity: number; price: number; staff: StaffAssignmentValue }[]
   >([]);
 
   useEffect(() => {
@@ -69,7 +85,7 @@ export function AddendumDialog({
       setQuantity("1");
       setPrice("");
       setStaffId("");
-      setLeadStaffId("");
+      setStaffAssign(EMPTY_STAFF);
       setPaymentMethod("cash");
       setReason("");
       setError("");
@@ -107,7 +123,6 @@ export function AddendumDialog({
   const priceInvalid = !!selectedItem && (price === "" || unitPrice <= 0);
 
   const cartTotal = cartItems.reduce((sum, c) => sum + c.price * c.quantity, 0);
-  const anyServiceInCart = cartItems.some((c) => c.item.type === "service");
   const storeCreditInsufficient = paymentMethod === "store_credit" && cartTotal > customerStoreCreditBalance;
 
   const addToCart = () => {
@@ -118,13 +133,14 @@ export function AddendumDialog({
       return setError("This item does not allow fractional quantities.");
     }
     if (priceInvalid) return setError("Enter a price greater than 0.");
-    if (isService && !leadStaffId) {
+    if (isService && !staffAssign.leadStaffId) {
       return setError("Lead staff is required for service items so commission is correctly attributed.");
     }
     setCartItems((prev) => [
       ...prev,
-      { key: `${selectedItem.id}-${Date.now()}`, item: selectedItem, quantity: qty, price: unitPrice },
+      { key: `${selectedItem.id}-${Date.now()}`, item: selectedItem, quantity: qty, price: unitPrice, staff: isService ? staffAssign : EMPTY_STAFF },
     ]);
+    setStaffAssign(EMPTY_STAFF);
     setSelectedItem(null);
     setQuantity("1");
     setPrice("");
@@ -144,7 +160,10 @@ export function AddendumDialog({
           quantity: cartItem.quantity,
           customPrice: cartItem.price,
           staffId,
-          leadStaffId: leadStaffId || undefined,
+          leadStaffId: cartItem.staff.leadStaffId || undefined,
+          assistingStaff1Id: cartItem.staff.assistingStaff1Id || undefined,
+          assistingStaff2Id: cartItem.staff.assistingStaff2Id || undefined,
+          commissionSplit: cartItem.staff.commissionSplit,
           paymentMethod,
           reason: reason.trim(),
         });
@@ -183,9 +202,6 @@ export function AddendumDialog({
     setError("");
     if (cartItems.length === 0) return setError("Add at least one item to the receipt.");
     if (!staffId) return setError("Please select who processed this.");
-    if (anyServiceInCart && !leadStaffId) {
-      return setError("Lead staff is required for service items so commission is correctly attributed.");
-    }
     if (storeCreditInsufficient) {
       return setError(`Insufficient store credit. Balance: ${fmt(customerStoreCreditBalance)}`);
     }
@@ -272,7 +288,7 @@ export function AddendumDialog({
                             if (outOfStock) return;
                             setSelectedItem(item);
                             setPrice(String(item.sellingPrice ?? "0"));
-                            setLeadStaffId("");
+                            setStaffAssign(EMPTY_STAFF);
                           }}
                           className={cn(outOfStock && "opacity-40 cursor-not-allowed")}
                         >
@@ -313,62 +329,41 @@ export function AddendumDialog({
             <>
               <Separator />
 
-              {/* Quantity + Price */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="addendum-qty" className="text-sm">Quantity</Label>
-                  <Input
-                    id="addendum-qty"
-                    type="number"
-                    min="0.01"
-                    step={selectedItem.allowFractional ? "0.01" : "1"}
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addendum-price" className="text-sm">Price</Label>
-                  <Input
-                    id="addendum-price"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={price}
-                    onChange={(e) => setPrice(e.target.value)}
-                    className={cn(priceInvalid && "border-destructive focus-visible:ring-destructive")}
-                  />
-                  {priceInvalid && (
-                    <p className="text-xs text-destructive flex items-center gap-1">
+              {/* Quantity + price + staff — the same controls as checkout and the receipt line editor */}
+              <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/50 border-l-4 border-l-violet-500 dark:border-l-violet-400">
+                <QuantityPriceControls
+                  quantity={qty}
+                  unitPrice={unitPrice}
+                  listPrice={Number(selectedItem.sellingPrice) || 0}
+                  lineTotal={lineSubtotal}
+                  allowFractional={!!selectedItem.allowFractional}
+                  unit={selectedItem.unit}
+                  maxQuantity={isService ? 999 : Number(selectedItem.quantity) || undefined}
+                  formatCurrency={fmt}
+                  onStep={(delta) =>
+                    setQuantity(String(Math.max(selectedItem.allowFractional ? 0.01 : 1, Math.round((qty + delta) * 10000) / 10000)))
+                  }
+                  onSetQuantity={(n) => setQuantity(String(n))}
+                  onSetPrice={(n) => setPrice(String(n))}
+                  testIdSuffix="addendum"
+                  priceFootnote={priceInvalid ? (
+                    <span className="text-xs text-destructive flex items-center gap-1 w-full">
                       <AlertCircle className="h-3 w-3 shrink-0" />
                       Enter a price greater than 0
-                    </p>
-                  )}
-                </div>
+                    </span>
+                  ) : undefined}
+                />
+                {isService && (
+                  <StaffAssignmentFields
+                    value={staffAssign}
+                    staffList={staffList}
+                    idPrefix="addendum"
+                    onChange={(field: StaffAssignmentField, value) =>
+                      setStaffAssign((prev) => applyStaffChange(prev, field, value))
+                    }
+                  />
+                )}
               </div>
-
-              {/* Lead staff — required for services */}
-              {isService && (
-                <div className="space-y-2">
-                  <Label className="text-sm">
-                    Lead / Service Staff{" "}
-                    <span className="text-destructive">*</span>
-                  </Label>
-                  <p className="text-[11px] text-muted-foreground">
-                    Required — determines commission attribution for this service.
-                  </p>
-                  <Select value={leadStaffId} onValueChange={setLeadStaffId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select staff who performed this..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {staffList.map((s: any) => (
-                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
 
               {/* Amount preview + add to list */}
               <div className="rounded-md border border-dashed bg-muted/40 px-4 py-3 flex items-center justify-between gap-3">
@@ -381,7 +376,7 @@ export function AddendumDialog({
                   size="sm"
                   variant="secondary"
                   onClick={addToCart}
-                  disabled={priceInvalid || qty <= 0 || (isService && !leadStaffId)}
+                  disabled={priceInvalid || qty <= 0 || (isService && !staffAssign.leadStaffId)}
                 >
                   <Plus className="h-3.5 w-3.5 mr-1" />
                   Add to list

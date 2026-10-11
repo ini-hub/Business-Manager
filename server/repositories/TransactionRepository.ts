@@ -611,6 +611,7 @@ export class TransactionRepository {
       TRANSACTION_VOID: "Voided",
       TRANSACTION_DATE_EDIT: "Transaction date edited",
       TRANSACTION_STAFF_EDIT: "Performed-by corrected",
+      TRANSACTION_LINE_EDIT: "Line item edited",
       PAYMENT_UPDATE: "Payment status updated",
     };
 

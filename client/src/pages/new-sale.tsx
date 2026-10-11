@@ -81,6 +81,7 @@ import { CustomerPresenter, StaffPresenter, EntityDisplay } from "@/components/o
 import { NewCustomerDialog } from "./new-sale/NewCustomerDialog";
 import { ProductGrid } from "./new-sale/ProductGrid";
 import { CartItemRow } from "./new-sale/CartItemRow";
+import { applyStaffChange, type StaffAssignmentField } from "@/components/sale-line/StaffAssignmentFields";
 import { CashRegisterDialogs } from "./new-sale/CashRegisterDialogs";
 import { SupervisorOverrideDialog } from "./new-sale/SupervisorOverrideDialog";
 import { DraftsSheet } from "./new-sale/DraftsSheet";
@@ -923,22 +924,9 @@ export default function NewSale() {
   };
 
   const updateStaffAssignment = (itemId: string, field: keyof CartItem, value: string | null | boolean) => {
-    setCart((prev) => prev.map(c => {
-      if (c.inventory.id === itemId) {
-        const updated = { ...c, [field]: value };
-        if (field === "leadStaffId" && !value) {
-          updated.assistingStaff1Id = null;
-          updated.assistingStaff2Id = null;
-          updated.showAsst1 = false;
-          updated.showAsst2 = false;
-        } else if (field === "assistingStaff1Id" && !value) {
-          updated.assistingStaff2Id = null;
-          updated.showAsst2 = false;
-        }
-        return updated;
-      }
-      return c;
-    }));
+    setCart((prev) => prev.map((c) => (
+      c.inventory.id === itemId ? applyStaffChange(c, field as StaffAssignmentField, value) : c
+    )));
   };
 
   const updateQuantity = (itemId: string, delta: number) => {

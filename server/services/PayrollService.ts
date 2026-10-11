@@ -28,6 +28,17 @@ import { commissionForFormula } from "./payroll/commissionFormula";
 import { staffContractService } from "./StaffContractService";
 import { staffInviteService } from "./StaffInviteService";
 
+/**
+ * Commission base for a service line, net of anything the customer returned.
+ * A returned (or amended-away) line must stop earning commission; scaling by
+ * the unreturned fraction keeps partial returns proportional.
+ */
+function netOfReturns(price: number, order: { quantity: number; returnedQuantity: number | null }): number {
+  if (!order.quantity || !order.returnedQuantity) return price;
+  const keptFraction = Math.max(0, 1 - order.returnedQuantity / order.quantity);
+  return price * keptFraction;
+}
+
 type PayrollExcludedStaff = { staffId: string; name: string; reason: "pending_signature" | "declined" | "invite_pending" };
 
 class PayrollService {
@@ -444,7 +455,7 @@ class PayrollService {
 
       // Calculate checkout shares for active staff
       for (const row of dayServiceCheckouts) {
-        const effectivePrice = effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice;
+        const effectivePrice = netOfReturns(effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice, row.order);
         const leadId = row.checkout.leadStaffId || row.checkout.staffId;
         const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
         const staffCount = 1 + assistants.length;
@@ -938,7 +949,7 @@ class PayrollService {
 
       if (isAssigned) {
         for (const row of dayServiceCheckouts) {
-          const effectivePrice = effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice;
+          const effectivePrice = netOfReturns(effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice, row.order);
           const leadId = row.checkout.leadStaffId || row.checkout.staffId;
           const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
           const staffCount = 1 + assistants.length;

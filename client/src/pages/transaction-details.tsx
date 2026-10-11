@@ -40,7 +40,7 @@ import { Label } from "@/components/ui/label";
 import { ReceiptModal } from "@/components/receipt-modal";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { AddendumDialog } from "@/components/AddendumDialog";
-import { PerformedByDialog } from "@/components/PerformedByDialog";
+import { LineEditDialog, type EditableLine } from "@/components/LineEditDialog";
 import { LogSupplyUsageDialog } from "@/components/log-supply-usage-dialog";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useReturnTo } from "@/lib/return-to";
@@ -226,14 +226,37 @@ export default function TransactionDetailsPage() {
     }
   };
 
-  // Service lines only — lead first, then assistants, matching how checkout stores them.
-  const performedByLines = (receiptDetails?.items ?? [])
-    .filter((item: any) => item.inventory?.type === "service" && !item.checkout?.isVoided)
-    .map((item: any) => ({
-      checkoutId: item.checkout.id as string,
-      serviceName: (item.inventory?.name ?? "Service") as string,
-      staffIds: [item.leadStaff?.id, item.assistingStaff1?.id, item.assistingStaff2?.id].filter(Boolean) as string[],
-    }));
+  // Every live line that still has units on the sale. Services carry their
+  // lead/assistants/split; products edit quantity, price or item only.
+  const editableLines: EditableLine[] = (receiptDetails?.items ?? [])
+    .filter((item: any) => {
+      if (item.checkout?.isVoided || !item.order || !item.inventory) return false;
+      if (item.inventory.type !== "service" && item.inventory.type !== "product") return false;
+      return Number(item.order.quantity) - Number(item.order.returnedQuantity || 0) > 0;
+    })
+    .map((item: any): EditableLine => {
+      const ordered = Number(item.order.quantity) || 1;
+      const remaining = ordered - Number(item.order.returnedQuantity || 0);
+      const subtotal = Number(item.checkout.subtotal || item.order.totalPrice || 0);
+      const charged = Number(item.checkout.totalCharged || item.checkout.totalPrice || 0);
+      return {
+        checkoutId: item.checkout.id as string,
+        inventoryId: item.order.inventoryId as string,
+        name: (item.inventory.name ?? "Item") as string,
+        type: item.inventory.type as "service" | "product",
+        allowFractional: !!item.inventory.allowFractional,
+        unit: item.inventory.unit,
+        quantity: remaining,
+        unitPrice: Number(item.order.totalPrice) / ordered,
+        listPrice: Number(item.inventory.sellingPrice) || 0,
+        chargedTotal: (charged / ordered) * remaining,
+        taxRate: subtotal > 0 ? Number(item.checkout.taxTotal || 0) / subtotal : 0,
+        leadStaffId: item.leadStaff?.id ?? null,
+        assistingStaff1Id: item.assistingStaff1?.id ?? null,
+        assistingStaff2Id: item.assistingStaff2?.id ?? null,
+        commissionSplit: item.checkout.commissionSplit === "equal" ? "equal" : "standard",
+      };
+    });
 
   const returnCheckoutObj = receiptDetails ? {
     id: checkoutId,
@@ -463,7 +486,7 @@ export default function TransactionDetailsPage() {
         </button>
       )}
 
-      {canManage && performedByLines.length > 0 && !isVoided && (
+      {canManage && editableLines.length > 0 && !isVoided && (
         <button
           type="button"
           className="w-full flex items-center gap-3 rounded-lg p-3 text-left hover:bg-muted/50 transition-colors"
@@ -471,8 +494,8 @@ export default function TransactionDetailsPage() {
         >
           <UserCog className="h-4 w-4 text-muted-foreground shrink-0" />
           <div>
-            <p className="text-sm font-medium">Correct performed by</p>
-            <p className="text-xs text-muted-foreground">Change who did each service · affects commission</p>
+            <p className="text-sm font-medium">Edit line items</p>
+            <p className="text-xs text-muted-foreground">Staff, split, quantity, price or item · affects commission and revenue</p>
           </div>
         </button>
       )}
@@ -1209,12 +1232,18 @@ export default function TransactionDetailsPage() {
       </Dialog>
 
       {checkoutId && currentStore?.id && (
-        <PerformedByDialog
+        <LineEditDialog
           open={isPerformedByOpen}
           onOpenChange={setIsPerformedByOpen}
           checkoutId={checkoutId}
           storeId={currentStore.id}
-          lines={performedByLines}
+          currency={receiptDetails?.store?.currency ?? storeCurrency}
+          hasCustomer={!!receiptDetails?.customer?.id}
+          lines={editableLines}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: [`/api/transactions/${checkoutId}/receipt`] });
+            queryClient.invalidateQueries({ queryKey: [`/api/transactions/${id}/receipt`] });
+          }}
         />
       )}
 
