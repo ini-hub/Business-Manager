@@ -7,6 +7,7 @@ import { auditLogger } from "../audit";
 import { getClientIp } from "./helpers";
 import { exchangeCode, fetchTransactions, getMonoPublicKey, isMonoConfigured, isValidMonoWebhook, type MonoTransaction } from "../lib/mono";
 import type { RouteMiddlewares } from "./payment-accounts.routes";
+import { requirePermission } from "../lib/permissionGate";
 
 const MAX_PAGES = 10;
 const FIRST_SYNC_DAYS = 30;
@@ -39,11 +40,11 @@ export function registerBankConnectionRoutes(app: Express, { isAuthenticated, re
     message: { error: "Too many syncs. Please wait a moment." },
   });
 
-  app.get("/api/sales/bank-connections/config", isAuthenticated, requireManagerOrOwner, (_req, res) => {
+  app.get("/api/sales/bank-connections/config", isAuthenticated, requirePermission("/settings"), (_req, res) => {
     res.json({ configured: isMonoConfigured(), publicKey: isMonoConfigured() ? getMonoPublicKey() : null });
   });
 
-  app.get("/api/sales/bank-connections", isAuthenticated, requireManagerOrOwner, async (req, res) => {
+  app.get("/api/sales/bank-connections", isAuthenticated, requirePermission("/settings"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -54,7 +55,7 @@ export function registerBankConnectionRoutes(app: Express, { isAuthenticated, re
     }
   });
 
-  app.get("/api/sales/bank-connections/unmatched", isAuthenticated, requireManagerOrOwner, async (req, res) => {
+  app.get("/api/sales/bank-connections/unmatched", isAuthenticated, requirePermission("/settings"), async (req, res) => {
     try {
       const storeId = req.query.storeId as string;
       if (!storeId) return res.status(400).json({ error: "Store ID is required." });
@@ -65,7 +66,7 @@ export function registerBankConnectionRoutes(app: Express, { isAuthenticated, re
     }
   });
 
-  app.post("/api/sales/bank-connections", isAuthenticated, requireManagerOrOwner, syncLimiter, async (req, res) => {
+  app.post("/api/sales/bank-connections", isAuthenticated, requirePermission("/settings"), syncLimiter, async (req, res) => {
     try {
       if (!isMonoConfigured()) return res.status(503).json({ error: "Bank linking isn't set up on this platform yet." });
       const parsed = z.object({ storeId: z.string().min(1), paymentAccountId: z.string().min(1), code: z.string().min(1) }).safeParse(req.body);
@@ -90,7 +91,7 @@ export function registerBankConnectionRoutes(app: Express, { isAuthenticated, re
     }
   });
 
-  app.post("/api/sales/bank-connections/:id/sync", isAuthenticated, requireManagerOrOwner, syncLimiter, async (req, res) => {
+  app.post("/api/sales/bank-connections/:id/sync", isAuthenticated, requirePermission("/settings"), syncLimiter, async (req, res) => {
     try {
       const conn = await storage.bankFeedRepo.get(req.params.id);
       if (!conn || conn.status === "disconnected") return res.status(404).json({ error: "Bank connection not found." });
@@ -102,7 +103,7 @@ export function registerBankConnectionRoutes(app: Express, { isAuthenticated, re
     }
   });
 
-  app.delete("/api/sales/bank-connections/:id", isAuthenticated, requireManagerOrOwner, async (req, res) => {
+  app.delete("/api/sales/bank-connections/:id", isAuthenticated, requirePermission("/settings"), async (req, res) => {
     try {
       const conn = await storage.bankFeedRepo.get(req.params.id);
       if (!conn) return res.status(404).json({ error: "Bank connection not found." });

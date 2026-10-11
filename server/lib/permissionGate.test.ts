@@ -63,4 +63,11 @@ describe("converted route groups stay on requirePermission", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("keeps the settings and promotions routes free of inline owner/manager checks", () => {
+    // A route that passes requirePermission and then re-checks the built-in role would refuse the very
+    // custom role the page grant was meant to allow.
+    const src = fs.readFileSync(path.resolve(__dirname, "../routes/settings.routes.ts"), "utf8");
+    expect(src).not.toMatch(/role !== "manager" && role !== "owner"/);
+  });
 });
