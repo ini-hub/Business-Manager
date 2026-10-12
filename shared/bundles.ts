@@ -107,6 +107,22 @@ export function bundleForCycle(
   };
 }
 
+/**
+ * A bundle child (e.g. Stock Transfers under Additional Store) is never sold or
+ * entitled on its own - buying its parent is what carries it. A bundle that lists
+ * the child can therefore never be held "in full", so it silently never gets its
+ * discount and cannot be saved. Swap each child for its parent (kept in place,
+ * de-duplicated) so the bundle means what its author meant.
+ */
+export function replaceChildrenWithParents(keys: readonly string[], parentOf: ReadonlyMap<string, string>): string[] {
+  const out: string[] = [];
+  for (const k of keys) {
+    const mapped = parentOf.get(k) ?? k;
+    if (!out.includes(mapped)) out.push(mapped);
+  }
+  return out;
+}
+
 export const PURCHASABLE_TIERS: readonly string[] = ["paid_flat", "paid_metered_limit", "bundle_parent"];
 
 export function slugifyBundleKey(name: string): string {

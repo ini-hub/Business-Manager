@@ -2,7 +2,7 @@ import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { featureCatalog, featureDependencies, pricingBundles, type FeatureCatalog, type PricingBundleRow } from "@shared/schema";
 import {
-  PURCHASABLE_TIERS, deriveBullets, priceSelection, validateBundleSelection,
+  PURCHASABLE_TIERS, deriveBullets, priceSelection, replaceChildrenWithParents, validateBundleSelection,
   type CatalogEntry, type PricingBundle, type PublicPricing, type SelectionPrice,
 } from "@shared/bundles";
 import { getConfiguredTrialDays } from "./platformConfig";
@@ -52,6 +52,20 @@ export async function loadCatalogEntries(): Promise<CatalogEntry[]> {
     tierType: r.tierType,
     dependsOn: deps.filter((d) => d.featureId === r.id).map((d) => keyById.get(d.dependsOnFeatureId)).filter((k): k is string => !!k),
   }));
+}
+
+/** child feature key -> parent feature key, for every bundle_child in the catalog. */
+export async function loadChildParentMap(): Promise<Map<string, string>> {
+  const rows = await db.select({
+    id: featureCatalog.id, key: featureCatalog.key, tierType: featureCatalog.tierType, parentFeatureId: featureCatalog.parentFeatureId,
+  }).from(featureCatalog);
+  const keyById = new Map(rows.map((r) => [r.id, r.key]));
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    const parent = r.tierType === "bundle_child" && r.parentFeatureId ? keyById.get(r.parentFeatureId) : undefined;
+    if (parent) out.set(r.key, parent);
+  }
+  return out;
 }
 
 /** Problems with a proposed member list (empty = valid). */
@@ -113,4 +127,9 @@ export async function getPublicPricing(): Promise<PublicPricing> {
     })),
     bundles,
   };
+}
+
+/** A proposed member list with any bundle child swapped for the parent that carries it. */
+export async function normalizeBundleMembers(featureKeys: string[]): Promise<string[]> {
+  return replaceChildrenWithParents(featureKeys, await loadChildParentMap());
 }

@@ -27,10 +27,10 @@ INSERT INTO pricing_bundles (key, name, tagline, feature_keys, discount_pct, bul
    '["credit_sale","quotes_management","product_variants","inventory_audit","tax_management","staff_seats_addon"]'::jsonb, 25,
    '["Credit sales and quotes","Item variants and stock audit","Taxes, unlimited staff"]'::jsonb, false, 10),
   ('growth', 'Growth', 'For teams and second branches',
-   '["credit_sale","quotes_management","product_variants","inventory_audit","tax_management","staff_seats_addon","booking_management","self_check_in","financial_management","loyalty_program","store_addon","stock_transfer"]'::jsonb, 25,
+   '["credit_sale","quotes_management","product_variants","inventory_audit","tax_management","staff_seats_addon","booking_management","self_check_in","financial_management","loyalty_program","store_addon"]'::jsonb, 25,
    '["Everything in Starter","Booking, self check-in, commission payroll","Loyalty, extra stores, stock transfer"]'::jsonb, true, 20),
   ('business', 'Business', 'For multi-store operations',
-   '["credit_sale","quotes_management","product_variants","inventory_audit","tax_management","staff_seats_addon","booking_management","self_check_in","financial_management","loyalty_program","store_addon","stock_transfer","custom_roles_permissions","whatsapp_broadcasts","customer_capacity_addon","item_capacity_addon"]'::jsonb, 25,
+   '["credit_sale","quotes_management","product_variants","inventory_audit","tax_management","staff_seats_addon","booking_management","self_check_in","financial_management","loyalty_program","store_addon","custom_roles_permissions","whatsapp_broadcasts","customer_capacity_addon","item_capacity_addon"]'::jsonb, 25,
    '["Everything in Growth","Custom roles, WhatsApp","Unlimited customers and items"]'::jsonb, false, 30)
 ON CONFLICT (key) DO NOTHING;
 

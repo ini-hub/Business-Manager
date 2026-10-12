@@ -71,7 +71,7 @@ import { publishFeature } from "./lib/featureSync";
 import { listPendingReview } from "./lib/featureReviewNotice";
 import { reactivateOrganisation, autoResolveSuspensionThreads } from "./lib/organisations";
 import { slugifyBundleKey } from "@shared/bundles";
-import { validateBundleMembers } from "./lib/pricing";
+import { validateBundleMembers, normalizeBundleMembers } from "./lib/pricing";
 import { DEFAULT_SIDEBAR_LAYOUT, validateSidebarLayout } from "@shared/sidebarLayout";
 import { getExportBranding, getSidebarLayout, getConfiguredTrialDays, getConfiguredGraceDays, setPlatformConfigValue, getPlatformConfigValue, getPhoneChangeOtpViaEmail, getWhatsAppPlatformConfigStatus, setWhatsAppPlatformConfig } from "./lib/platformConfig";
 import { encryptSecret } from "./lib/credentialEncryption";
@@ -3356,6 +3356,8 @@ adminRouter.post("/bundles", isAdminAuthenticated, requireAdminRole(["super_admi
     if (!key) return res.status(400).json({ error: "Name must contain letters or numbers." });
     const [existing] = await db.select().from(pricingBundles).where(eq(pricingBundles.key, key));
     if (existing) return res.status(409).json({ error: `A bundle called "${existing.name}" already exists.` });
+    // Seeded and older bundles can list a bundle child (e.g. Stock Transfers); the parent carries it.
+    data.featureKeys = await normalizeBundleMembers(data.featureKeys);
     const problems = await validateBundleMembers(data.featureKeys);
     if (problems.length > 0) return res.status(400).json({ error: problems.join(" ") });
     const taken = await structureTakenBy(data.businessStructure, data.isActive);
@@ -3383,6 +3385,8 @@ adminRouter.put("/bundles/:id", isAdminAuthenticated, requireAdminRole(["super_a
   try {
     const [before] = await db.select().from(pricingBundles).where(eq(pricingBundles.id, req.params.id));
     if (!before) return res.status(404).json({ error: "Bundle not found." });
+    // Seeded and older bundles can list a bundle child (e.g. Stock Transfers); the parent carries it.
+    data.featureKeys = await normalizeBundleMembers(data.featureKeys);
     const problems = await validateBundleMembers(data.featureKeys);
     if (problems.length > 0) return res.status(400).json({ error: problems.join(" ") });
     const taken = await structureTakenBy(data.businessStructure, data.isActive, before.id);

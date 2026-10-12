@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { db } from "../db";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, like, sql } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
 import { pricingBundles, featureCatalog } from "@shared/schema";
 import { priceSelection, priceIncrement } from "@shared/bundles";
-import { getPricingBundles, getPublicPricing, discountBreakdownLine } from "./pricing";
+import { getPricingBundles, getPublicPricing, discountBreakdownLine, normalizeBundleMembers } from "./pricing";
 import { assertTestDatabase, ensureSchema, closePool } from "../test-support/integration-db";
 
 /**
@@ -25,6 +27,8 @@ async function addBundle(values: Partial<typeof pricingBundles.$inferInsert> & {
 beforeAll(async () => {
   assertTestDatabase();
   await ensureSchema();
+  // A run that was killed before afterEach leaves active rows that would trip the one-per-type index.
+  await db.delete(pricingBundles).where(like(pricingBundles.key, "itest-fixed-%"));
 });
 
 afterEach(async () => {
@@ -75,5 +79,32 @@ describe("fixed bundle price", () => {
     await expect(addBundle({ featureKeys: ["b"], businessStructure: "multi_store" })).rejects.toThrow();
     // An inactive one for the same type is fine.
     await expect(addBundle({ featureKeys: ["b"], businessStructure: "multi_store", isActive: false })).resolves.toBeDefined();
+  });
+});
+
+describe("bundle children (migration 0134)", () => {
+  async function childAndParent() {
+    const rows = await db.select().from(featureCatalog);
+    const keyById = new Map(rows.map((r) => [r.id, r.key]));
+    const child = rows.find((r) => r.tierType === "bundle_child" && r.parentFeatureId && keyById.get(r.parentFeatureId));
+    return child ? { child: child.key, parent: keyById.get(child.parentFeatureId!)! } : null;
+  }
+
+  it("swaps a child member for its parent, keeping order and de-duplicating", async () => {
+    const pair = await childAndParent();
+    if (!pair) return; // no bundle_child in this catalog
+    expect(await normalizeBundleMembers(["x", pair.child, pair.parent, "y"])).toEqual(["x", pair.parent, "y"]);
+    expect(await normalizeBundleMembers([pair.child])).toEqual([pair.parent]);
+  });
+
+  it("the migration rewrites an existing bundle that lists a child, and is safe to re-run", async () => {
+    const pair = await childAndParent();
+    if (!pair) return;
+    const b = await addBundle({ featureKeys: ["x", pair.child, pair.parent, "y"] });
+    const migration = fs.readFileSync(path.join(process.cwd(), "migrations", "0134_bundle_children_to_parents.sql"), "utf8");
+    await db.execute(sql.raw(migration));
+    await db.execute(sql.raw(migration));
+    const [row] = await db.select().from(pricingBundles).where(eq(pricingBundles.id, b.id));
+    expect(row.featureKeys).toEqual(["x", pair.parent, "y"]);
   });
 });

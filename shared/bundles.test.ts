@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { priceSelection, priceIncrement, validateBundleSelection, deriveBullets, slugifyBundleKey, bundleForCycle, type CatalogEntry } from "./bundles";
+import { priceSelection, priceIncrement, validateBundleSelection, deriveBullets, slugifyBundleKey, bundleForCycle, replaceChildrenWithParents, type CatalogEntry } from "./bundles";
 
 const entry = (key: string, over: Partial<CatalogEntry> = {}): CatalogEntry => ({ key, name: key.toUpperCase(), isActive: true, tierType: "paid_flat", dependsOn: [], ...over });
 
@@ -155,5 +155,19 @@ describe("fixed bundle price (admin override)", () => {
     const pub = { key: "solo", name: "Solo", featureKeys: ["a", "b"], discountPct: 0, fixedPriceMonthly: 2000, fixedPriceAnnual: null, businessStructure: "solo" };
     expect(bundleForCycle(pub, "monthly").fixedPrice).toBe(2000);
     expect(bundleForCycle(pub, "annual").fixedPrice).toBeNull();
+  });
+});
+
+describe("replaceChildrenWithParents", () => {
+  const parentOf = new Map([["stock_transfer", "store_addon"], ["staff_transfer", "store_addon"]]);
+  it("swaps a child for its parent in place and de-duplicates", () => {
+    expect(replaceChildrenWithParents(["a", "stock_transfer", "store_addon", "staff_transfer", "b"], parentOf))
+      .toEqual(["a", "store_addon", "b"]);
+  });
+  it("adds the parent when only the child was listed", () => {
+    expect(replaceChildrenWithParents(["stock_transfer"], parentOf)).toEqual(["store_addon"]);
+  });
+  it("leaves ordinary keys alone", () => {
+    expect(replaceChildrenWithParents(["a", "b"], parentOf)).toEqual(["a", "b"]);
   });
 });
