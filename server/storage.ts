@@ -211,6 +211,7 @@ interface IStorage {
   assignedStoreIds(staffId: string): Promise<string[]>;
   assignedStoreIdsForUser(userId: string): Promise<string[]>;
   getStaffForUserInStore(userId: string, storeId: string): Promise<Staff | undefined>;
+  getStaffByUserInBusiness(userId: string, businessId: string): Promise<Staff | undefined>;
   getInviteProjection(userIds: string[], organisationId: string): Promise<Array<{
     userId: string;
     memberStatus: string | null;
@@ -887,6 +888,11 @@ class DatabaseStorage implements IStorage {
     return this.staffRepo.getStaffForUserInStore(userId, storeId);
   }
 
+  async getStaffByUserInBusiness(userId: string, businessId: string): Promise<Staff | undefined> {
+    return this.staffRepo.getStaffByUserInBusiness(userId, businessId);
+  }
+
+  async getInviteProjection(userIds: string[], organisationId: string) {
     return this.staffRepo.getInviteProjection(userIds, organisationId);
   }
 

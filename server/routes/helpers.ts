@@ -150,7 +150,7 @@ export function storesInCurrency<T extends { currency: string }>(stores: T[], cu
   return typeof currency === "string" && currency ? stores.filter((s) => s.currency === currency) : stores;
 }
 
-/** The business's stores a staff user may reach: those where they hold a staff row. */
+/** The business's stores a staff user may reach: those they are assigned to (home store included). */
 export function storesForStaff(businessStoreIds: readonly string[], staffStoreIds: readonly string[]): string[] {
   const held = new Set(staffStoreIds);
   return businessStoreIds.filter((id) => held.has(id));
@@ -164,12 +164,12 @@ async function loadAllowedStoreIds(req: Request): Promise<string[]> {
     return stores.map((s: any) => s.id as string);
   };
 
-  // Staff see the stores they have an active staff row in (one row per store they work at),
+  // Staff see the stores they are assigned to (staff_store_assignments, plus legacy one-row-per-store),
   // matching verifyStoreAccess and the store list in loadVisibleStores.
   if (user?.role === "staff") {
     const allowed = await load();
-    const rows = userId ? await storage.getAllStaffByUserId(userId) : [];
-    return storesForStaff(allowed, rows.map((r) => r.storeId));
+    const assigned = userId ? await storage.assignedStoreIdsForUser(userId) : [];
+    return storesForStaff(allowed, assigned);
   }
   return userId ? accessibleStoresCache.get(`${userId}:${user?.businessId ?? ""}:${requestedCurrency(req) ?? ""}`, load) : load();
 }

@@ -41,7 +41,8 @@ export async function loadAuthUser(req: AuthedReq): Promise<Record<string, unkno
     const [fetchedBusiness, member, staffRecord] = await Promise.all([
       storage.getBusinessById(orgId),
       storage.getOrganisationMember(user.id, orgId),
-      storage.getStaffByUserId(user.id),
+      // The staff record in the active business, never one from another business the person also works in.
+      storage.getStaffByUserInBusiness(user.id, orgId),
     ]);
     business = fetchedBusiness;
     ownStaffRecord = staffRecord;
@@ -123,7 +124,7 @@ export async function loadVisibleStores(req: AuthedReq, requestedBusinessId?: st
   let storeList = await storage.getStores(businessId);
   // Staff only see the store(s) they are assigned to.
   if (req.user?.role === "staff") {
-    const assigned = new Set((await storage.getAllStaffByUserId(userId)).map((st) => st.storeId));
+    const assigned = new Set(await storage.assignedStoreIdsForUser(userId));
     storeList = storeList.filter((st) => assigned.has(st.id));
   }
   return { ok: true, data: storeList };

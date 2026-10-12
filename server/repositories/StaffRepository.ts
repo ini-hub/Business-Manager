@@ -213,7 +213,9 @@ export class StaffRepository {
   // cross-store uniqueness checks — see call sites) that predate this and
   // still want "any one row for this user."
   async getStaffByUserId(userId: string, storeId?: string): Promise<Staff | undefined> {
-    const condition = storeId ? and(eq(staff.userId, userId), eq(staff.storeId, storeId)) : eq(staff.userId, userId);
+    // Store-scoped: the row homed there or assigned there (staff_store_assignments), same as access checks.
+    if (storeId) return this.getStaffForUserInStore(userId, storeId);
+    const condition = eq(staff.userId, userId);
     // A person may hold one staff row per store. With no store given, prefer an active row and
     // then the oldest, so the answer does not change between requests.
     const [result] = await db.select().from(staff).where(condition).orderBy(asc(staff.isArchived), asc(staff.createdAt));
@@ -272,15 +274,33 @@ export class StaffRepository {
       )
       .where(and(
         eq(staff.userId, userId),
-        or(eq(staff.storeId, storeId), sql`${staffStoreAssignments.id} IS NOT NULL`),
+        // Homed here (legacy shape, as before), or holding an active assignment here.
+        or(
+          eq(staff.storeId, storeId),
+          and(sql`${staffStoreAssignments.id} IS NOT NULL`, eq(staffStoreAssignments.isArchived, false)),
+        ),
       ))
       .orderBy(
         sql`(${staff.storeId} = ${storeId}) DESC`,
         asc(staff.isArchived),
         asc(staff.createdAt),
-      );
-    const hit = rows.find((r) => r.assignmentArchived !== true) ?? rows[0];
-    return hit?.member;
+      )
+      .limit(1);
+    return rows[0]?.member;
+  }
+
+  /**
+   * The login's staff record within one business (the active workspace). Unlike the unscoped
+   * getStaffByUserId, this never returns a row from a different business the person also works in.
+   */
+  async getStaffByUserInBusiness(userId: string, businessId: string): Promise<Staff | undefined> {
+    const [row] = await db.select({ member: staff })
+      .from(staff)
+      .innerJoin(stores, eq(stores.id, staff.storeId))
+      .where(and(eq(staff.userId, userId), eq(stores.businessId, businessId)))
+      .orderBy(asc(staff.isArchived), asc(staff.createdAt), asc(staff.id))
+      .limit(1);
+    return row?.member;
   }
 
   /**

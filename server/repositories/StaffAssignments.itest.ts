@@ -109,6 +109,41 @@ describe("staff store assignments", () => {
     expect((await storage.getStaffForUserInStore(u.id, b.storeId))?.id).toBe(a.staffId);
   });
 
+  it("store-scoped getStaffByUserId follows assignments: assigned store yes, archived assignment and other stores no", async () => {
+    const a = await newFixture();
+    const b = await newFixture();
+    const c = await newFixture();
+    const [u] = await db.insert(users).values({
+      email: `scoped-${Date.now()}@example.test`, password: "x", name: "Scoped",
+    } as any).returning();
+    userIds.push(u.id);
+    await db.update(staff).set({ userId: u.id }).where(eq(staff.id, a.staffId));
+
+    expect((await storage.getStaffByUserId(u.id, a.storeId))?.id).toBe(a.staffId);
+    expect(await storage.getStaffByUserId(u.id, b.storeId)).toBeUndefined();
+
+    await assign(a.staffId, b.storeId, `Z-${Date.now()}`);
+    expect((await storage.getStaffByUserId(u.id, b.storeId))?.id).toBe(a.staffId);
+    expect(await storage.getStaffByUserId(u.id, c.storeId)).toBeUndefined();
+
+    await db.update(staffStoreAssignments).set({ isArchived: true })
+      .where(and(eq(staffStoreAssignments.staffId, a.staffId), eq(staffStoreAssignments.storeId, b.storeId)));
+    expect(await storage.getStaffByUserId(u.id, b.storeId)).toBeUndefined();
+  });
+
+  it("getStaffByUserInBusiness returns the row in that business, not one from another business", async () => {
+    const a = await newFixture();
+    const b = await newFixture(); // different business
+    const [u] = await db.insert(users).values({
+      email: `biz-${Date.now()}@example.test`, password: "x", name: "Two Businesses",
+    } as any).returning();
+    userIds.push(u.id);
+    await db.update(staff).set({ userId: u.id }).where(eq(staff.id, a.staffId));
+    await db.update(staff).set({ userId: u.id, mobileNumber: uniqueMobile() }).where(eq(staff.id, b.staffId));
+    expect((await storage.getStaffByUserInBusiness(u.id, a.businessId))?.id).toBe(a.staffId);
+    expect((await storage.getStaffByUserInBusiness(u.id, b.businessId))?.id).toBe(b.staffId);
+  });
+
   it("updateStaff mirrors number and role; archive/restore mirror isArchived on the home assignment", async () => {
     const f = await newFixture();
     await storage.updateStaff(f.staffId, { role: "manager" });
