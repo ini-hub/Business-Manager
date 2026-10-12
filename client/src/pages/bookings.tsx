@@ -147,8 +147,8 @@ export default function BookingsPage() {
   ];
 
   const { data: staffList = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["/api/staff", currentStore?.id],
-    queryFn: () => fetchAllStaff(currentStore!.id),
+    queryKey: ["/api/staff", currentStore?.id, "visiting"],
+    queryFn: () => fetchAllStaff(currentStore!.id, { includeVisiting: true }),
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
   const staffName = (id?: string | null) => (id ? staffList.find((s) => s.id === id)?.name ?? "" : "");

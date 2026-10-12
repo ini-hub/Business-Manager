@@ -198,8 +198,15 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       const [store, mask, result] = await Promise.all([
         storage.getStore(storeId),
         getMaskPolicy(req),
-        storage.getStaffPaginated(storeId, { page: pageReq.page, limit: pageReq.limit, search, includeArchived }),
+        storage.getStaffPaginated(storeId, {
+          page: pageReq.page, limit: pageReq.limit, search, includeArchived,
+          includeVisiting: req.query.includeVisiting === "true",
+        }),
       ]);
+      // Rows homed elsewhere are marked, so a picker can say who is only visiting.
+      if (req.query.includeVisiting === "true") {
+        for (const row of result.data as any[]) row.isVisiting = row.storeId !== storeId;
+      }
       const businessId = store?.businessId || (req as any).user?.organisationId || (req as any).user?.businessId;
       const attachInviteStatus = async (list: any[]) => {
         const statuses = businessId
@@ -1239,6 +1246,7 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       });
       res.json(updated);
     } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
       console.error("Staff transfer error:", error);
       res.status(500).json({ error: "We couldn't transfer this staff member. Please try again." });
     }

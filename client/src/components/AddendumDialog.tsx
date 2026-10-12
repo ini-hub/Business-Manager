@@ -111,8 +111,8 @@ export function AddendumDialog({
   });
 
   const { data: staffList = [] } = useQuery({
-    queryKey: ["/api/staff", storeId],
-    queryFn: () => fetchAllStaff(storeId),
+    queryKey: ["/api/staff", storeId, "visiting"],
+    queryFn: () => fetchAllStaff(storeId, { includeVisiting: true }),
     enabled: open && !!storeId,
   });
 

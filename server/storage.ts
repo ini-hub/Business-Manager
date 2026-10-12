@@ -126,6 +126,8 @@ export interface PaginationOptions {
   page: number;
   limit: number;
   search?: string;
+  /** Staff lists only: also people homed elsewhere who hold an active assignment at the store. */
+  includeVisiting?: boolean;
   includeArchived?: boolean;
 }
 

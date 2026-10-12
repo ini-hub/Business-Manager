@@ -169,8 +169,8 @@ export function BookingCalendarView() {
   const isLoading = period === "year" ? summaryQuery.isLoading : detailQuery.isLoading;
 
   const { data: staffList = [] } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["/api/staff", currentStore?.id],
-    queryFn: () => fetchAllStaff(currentStore!.id),
+    queryKey: ["/api/staff", currentStore?.id, "visiting"],
+    queryFn: () => fetchAllStaff(currentStore!.id, { includeVisiting: true }),
     enabled: !!currentStore?.id && currentStore.id !== "all",
   });
   const staffNames = Object.fromEntries(staffList.map((s) => [s.id, s.name]));

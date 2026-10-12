@@ -5,11 +5,14 @@ const STAFF_PAGE_SIZE = 200;
  * paginated /api/staff endpoint, so no single request grows with headcount.
  * Resolves to a plain array, the shape all staff consumers expect.
  */
-export async function fetchAllStaff<T = any>(storeId: string): Promise<T[]> {
+export async function fetchAllStaff<T = any>(storeId: string, opts: { includeVisiting?: boolean } = {}): Promise<T[]> {
   const all: T[] = [];
+  // People homed at another store but assigned here (rows come back with isVisiting: true). Only operational
+  // pickers - who sold, who is at work - opt in; HR, payroll and the staff page list a store's own people.
+  const visiting = opts.includeVisiting ? "&includeVisiting=true" : "";
   for (let page = 1; ; page++) {
     const res = await fetch(
-      `/api/staff?storeId=${encodeURIComponent(storeId)}&page=${page}&limit=${STAFF_PAGE_SIZE}&includeArchived=true`,
+      `/api/staff?storeId=${encodeURIComponent(storeId)}&page=${page}&limit=${STAFF_PAGE_SIZE}&includeArchived=true${visiting}`,
       { credentials: "include" },
     );
     if (!res.ok) throw new Error("Failed to fetch staff");

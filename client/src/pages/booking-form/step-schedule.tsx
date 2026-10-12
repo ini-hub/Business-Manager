@@ -86,8 +86,8 @@ export function StepSchedule({ form, excludeBookingId }: StepScheduleProps) {
   const watchType = form.watch("type");
 
   const { data: staff = [] } = useQuery<Staff[]>({
-    queryKey: ["/api/staff", currentStore?.id],
-    queryFn: () => fetchAllStaff(currentStore!.id),
+    queryKey: ["/api/staff", currentStore?.id, "visiting"],
+    queryFn: () => fetchAllStaff(currentStore!.id, { includeVisiting: true }),
     enabled: !!currentStore?.id,
   });
 

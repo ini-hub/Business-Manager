@@ -138,8 +138,8 @@ export function LineEditDialog({ open, onOpenChange, checkoutId, storeId, curren
   }, [open]);
 
   const { data: staffList = [] } = useQuery<Staff[]>({
-    queryKey: ["/api/staff", storeId],
-    queryFn: () => fetchAllStaff(storeId),
+    queryKey: ["/api/staff", storeId, "visiting"],
+    queryFn: () => fetchAllStaff(storeId, { includeVisiting: true }),
     enabled: open && !!storeId,
   });
 

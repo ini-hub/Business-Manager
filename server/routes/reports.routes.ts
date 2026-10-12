@@ -259,6 +259,18 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
     const staffRecord = await storage.getStaffByUserId(userId, storeId);
     return staffRecord?.id ?? null;
   }
+  // A manager can only record attendance for people who work at the store: homed there, or actively
+  // assigned to it (a person who works several stores).
+  async function staffWorkAtStore(staffIds: string[], storeId: string): Promise<boolean> {
+    for (const id of Array.from(new Set(staffIds))) {
+      const member = await storage.getStaff(id);
+      if (!member) return false;
+      if (member.storeId === storeId) continue;
+      if (!(await storage.assignedStoreIds(id)).includes(storeId)) return false;
+    }
+    return true;
+  }
+  const NOT_AT_STORE_ERROR = "That staff member doesn't work at this store.";
   const SELF_MARK_ERROR = "You can't set your own attendance this way — clock in yourself, or file a missed clock-in request if you weren't able to.";
 
   // Get attendance records
@@ -321,6 +333,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         return res.status(400).json({ error: "lateMinutes must be a non-negative whole number." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
+      if (!(await staffWorkAtStore([staffId], storeId))) return res.status(400).json({ error: NOT_AT_STORE_ERROR });
 
       const ownStaffId = await getOwnStaffId(req, storeId);
       if (ownStaffId && staffId === ownStaffId) {
@@ -360,6 +373,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         return res.status(400).json({ error: "storeId, date, status and staffIds array are required." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
+      if (!(await staffWorkAtStore(staffIds, storeId))) return res.status(400).json({ error: NOT_AT_STORE_ERROR });
 
       const ownStaffId = await getOwnStaffId(req, storeId);
       if (ownStaffId && staffIds.includes(ownStaffId)) {
@@ -640,6 +654,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
         return res.status(400).json({ error: "A reason is required when clocking in on someone's behalf." });
       }
       if (!(await checkStoreAccess(storeId, req, res))) return;
+      if (!(await staffWorkAtStore([staffId], storeId))) return res.status(400).json({ error: NOT_AT_STORE_ERROR });
 
       const ownStaffId = await getOwnStaffId(req, storeId);
       if (ownStaffId && staffId === ownStaffId) {

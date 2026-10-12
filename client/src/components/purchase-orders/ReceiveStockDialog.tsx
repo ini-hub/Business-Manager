@@ -28,8 +28,8 @@ export function ReceiveStockDialog({ po, open, onOpenChange }: Props) {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
 
   const { data: staffList = [] } = useQuery<Staff[]>({
-    queryKey: ["/api/staff", po.storeId, "all"],
-    queryFn: () => fetchAllStaff<Staff>(po.storeId),
+    queryKey: ["/api/staff", po.storeId, "all", "visiting"],
+    queryFn: () => fetchAllStaff<Staff>(po.storeId, { includeVisiting: true }),
     enabled: open,
   });
 

@@ -162,10 +162,23 @@ export class StaffRepository {
   }
 
   async getStaffPaginated(storeId: string, options: PaginationOptions): Promise<PaginatedResult<Staff>> {
-    const { page, limit, search, includeArchived = false } = options;
+    const { page, limit, search, includeArchived = false, includeVisiting = false } = options;
     const offset = (page - 1) * limit;
 
-    const conditions = [eq(staff.storeId, storeId)];
+    // Homed here, or (for operational pickers) holding an active assignment here.
+    const atStore = includeVisiting
+      ? or(
+          eq(staff.storeId, storeId),
+          inArray(
+            staff.id,
+            db.select({ id: staffStoreAssignments.staffId }).from(staffStoreAssignments).where(and(
+              eq(staffStoreAssignments.storeId, storeId),
+              eq(staffStoreAssignments.isArchived, false),
+            )),
+          ),
+        )!
+      : eq(staff.storeId, storeId);
+    const conditions = [atStore];
     if (!includeArchived) {
       conditions.push(eq(staff.isArchived, false));
     }
@@ -435,6 +448,12 @@ export class StaffRepository {
     const newStaffNumber = existing?.staffNumber ?? await this.getNextAvailableStaffNumber(targetStoreId);
 
     const updated = await db.transaction(async (tx) => {
+      // A transfer takes a seat in the target store, so it's held to the same cap as a new hire. Owners and
+      // archived people use no seat.
+      if (staffMembers[0].role !== "owner" && !staffMembers[0].isArchived) {
+        const businessId = await getBusinessIdForStore(tx, targetStoreId);
+        if (businessId) await assertWithinCountLimit(tx, businessId, "staff_seats", 1, targetStoreId);
+      }
       // Release the source assignment first so its number is free and the person is no longer there.
       await tx.delete(staffStoreAssignments).where(and(
         eq(staffStoreAssignments.staffId, id),

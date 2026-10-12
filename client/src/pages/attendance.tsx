@@ -205,8 +205,8 @@ export default function AttendancePage() {
   const dailyDate = format(currentDate, "yyyy-MM-dd");
 
   const { data: staffList = [] } = useQuery<Staff[]>({
-    queryKey: ["/api/staff", currentStore?.id],
-    queryFn: () => fetchAllStaff(currentStore!.id),
+    queryKey: ["/api/staff", currentStore?.id, "visiting"],
+    queryFn: () => fetchAllStaff(currentStore!.id, { includeVisiting: true }),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
   });
 

@@ -39,8 +39,8 @@ export default function InventoryAuditNewPage() {
   const [auditItems, setAuditItems] = useState<AuditItem[]>([]);
 
   const { data: staffList = [] } = useQuery<any[]>({
-    queryKey: ["/api/staff", currentStore?.id],
-    queryFn: () => fetchAllStaff(currentStore!.id),
+    queryKey: ["/api/staff", currentStore?.id, "visiting"],
+    queryFn: () => fetchAllStaff(currentStore!.id, { includeVisiting: true }),
     enabled: !!currentStore?.id,
   });
 

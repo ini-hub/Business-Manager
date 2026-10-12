@@ -48,8 +48,8 @@ export function StepSummary({ form, onBack, isSubmitting }: StepSummaryProps) {
     enabled: !!currentStore?.id,
   });
   const { data: staff = [] } = useQuery<Staff[]>({
-    queryKey: ["/api/staff", currentStore?.id],
-    queryFn: () => fetchAllStaff(currentStore!.id),
+    queryKey: ["/api/staff", currentStore?.id, "visiting"],
+    queryFn: () => fetchAllStaff(currentStore!.id, { includeVisiting: true }),
     enabled: !!currentStore?.id,
   });
   const { data: inventory = [] } = useQuery<Inventory[]>({
