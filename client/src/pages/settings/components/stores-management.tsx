@@ -290,7 +290,7 @@ export function StoresManagementSection() {
         open={!!deletingStore}
         onOpenChange={() => setDeletingStore(null)}
         title="Permanently Delete Store"
-        description={`Are you sure you want to permanently delete "${deletingStore?.name}"? This cannot be undone. You can only delete a store if it has no customers, staff, or inventory.`}
+        description={`Are you sure you want to permanently delete "${deletingStore?.name}"? This cannot be undone. A store can only be deleted if it has no customers, stock or transaction history; otherwise keep it archived.`}
         onConfirm={handleDeleteStore}
         confirmText="Delete Permanently"
         isDestructive

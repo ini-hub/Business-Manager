@@ -169,6 +169,7 @@ interface IStorage {
   createStore(store: InsertStore & { isMain?: boolean }): Promise<Store>;
   updateStore(id: string, store: Partial<InsertStore>): Promise<Store | undefined>;
   deleteStore(id: string): Promise<boolean>;
+  getStoreDeletionBlockers(id: string): Promise<{ table: string; count: number }[]>;
   archiveStore(id: string): Promise<Store | undefined>;
   restoreStore(id: string): Promise<Store | undefined>;
   countActiveStores(businessId: string): Promise<number>;
@@ -739,6 +740,10 @@ class DatabaseStorage implements IStorage {
 
   async deleteStore(id: string): Promise<boolean> {
     return this.businessRepo.deleteStore(id);
+  }
+
+  async getStoreDeletionBlockers(id: string): Promise<{ table: string; count: number }[]> {
+    return this.businessRepo.getStoreDeletionBlockers(id);
   }
 
   async archiveStore(id: string): Promise<Store | undefined> {

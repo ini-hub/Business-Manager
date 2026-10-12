@@ -32,10 +32,28 @@ import {
   type InsertStoreIntegration,
   users,
 } from "@shared/schema";
-import { eq, and, ilike, count, isNull } from "drizzle-orm";
+import { eq, and, ilike, count, isNull, sql } from "drizzle-orm";
 import { seedDefaultHrConfig } from "../lib/hrDefaults";
 import { assertWithinCountLimit } from "../lib/entitlements";
 import { createTtlCache } from "../lib/ttlCache";
+
+export interface StoreDeletionBlocker { table: string; count: number }
+type FkTarget = { table: string; column: string };
+
+// Per-staff rows (profile and schedule config, no history) removed with the staff.
+const STAFF_DELETE_CLEARED_TABLES = new Set([
+  "staff_devices", "staff_schedules", "staff_schedule_exceptions", "hr_time_off_balances",
+  "hr_emergency_contacts", "hr_dependants", "hr_estate_beneficiaries", "hr_field_values",
+  "hr_job_info_history", "hr_additional_job_info_history", "staff_store_assignments",
+]);
+// Store-keyed tables that never block a delete: removed with the store (or
+// handled separately, like zero-stock inventory and customer_phones).
+const STORE_DELETE_CLEARED_TABLES = new Set([
+  ...Array.from(STAFF_DELETE_CLEARED_TABLES),
+  "staff", "store_counters", "settings", "store_integrations", "promotions", "notifications",
+  "checkout_idempotency_keys", "service_consumables", "hr_store_holidays", "tax_rates",
+  "expense_categories", "products", "inventory", "customer_phones",
+]);
 
 const settingsCache = createTtlCache<string, Settings>(10_000);
 
@@ -210,13 +228,68 @@ export class BusinessRepository {
     return updated;
   }
 
+  // Why a store can't be permanently deleted. Staff never block: they are removed
+  // with the store. Anything that is history (sales, expenses, payroll, stock
+  // movements, ...) does, found by following every foreign key into stores/staff
+  // so a table added later blocks by default instead of failing on a constraint.
+  async getStoreDeletionBlockers(id: string): Promise<StoreDeletionBlocker[]> {
+    const fks = await this.getStoreFkTargets();
+    const parts = [
+      ...fks.store.map((f) => sql`SELECT ${f.table}::text AS t, count(*)::int AS c FROM ${sql.identifier(f.table)} WHERE ${sql.identifier(f.column)} = ${id}`),
+      ...fks.staff.map((f) => sql`SELECT ${f.table}::text AS t, count(*)::int AS c FROM ${sql.identifier(f.table)} WHERE ${sql.identifier(f.column)} IN (SELECT id FROM staff WHERE store_id = ${id})`),
+      // Zero-stock items are setup leftovers; items still holding stock are not.
+      sql`SELECT 'inventory_with_stock'::text AS t, count(*)::int AS c FROM inventory WHERE store_id = ${id} AND quantity <> 0 AND NOT is_deleted`,
+    ];
+    const result = await db.execute(sql.join(parts, sql` UNION ALL `));
+    const byTable = new Map<string, number>();
+    for (const row of result.rows as Array<{ t: string; c: number }>) {
+      if (row.c > 0) byTable.set(row.t, Math.max(byTable.get(row.t) ?? 0, row.c));
+    }
+    return Array.from(byTable, ([table, n]) => ({ table, count: n }));
+  }
+
+  private storeFkTargets?: Promise<{ store: FkTarget[]; staff: FkTarget[] }>;
+
+  private getStoreFkTargets() {
+    this.storeFkTargets ??= (async () => {
+      const rows = (await db.execute(sql`
+        SELECT t.relname AS "table", a.attname AS "column", r.relname AS "ref"
+        FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid
+        JOIN pg_class r ON r.oid = c.confrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace AND n.nspname = current_schema()
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+        WHERE c.contype = 'f' AND c.confdeltype <> 'c' AND r.relname IN ('stores', 'staff')
+      `)).rows as Array<FkTarget & { ref: string }>;
+      return {
+        store: rows.filter((r) => r.ref === "stores" && !STORE_DELETE_CLEARED_TABLES.has(r.table)),
+        staff: rows.filter((r) => r.ref === "staff" && r.table !== "stores" && r.table !== "staff" && !STAFF_DELETE_CLEARED_TABLES.has(r.table)),
+      };
+    })().catch((e) => { this.storeFkTargets = undefined; throw e; });
+    return this.storeFkTargets;
+  }
+
+  // Callers check getStoreDeletionBlockers first; this only clears what that
+  // check deliberately lets through (staff, setup, zero-stock catalog).
   async deleteStore(id: string): Promise<boolean> {
     return await db.transaction(async (tx) => {
+      const ownStaff = sql`(SELECT id FROM staff WHERE store_id = ${id})`;
+      for (const t of Array.from(STAFF_DELETE_CLEARED_TABLES)) {
+        await tx.execute(sql`DELETE FROM ${sql.identifier(t)} WHERE staff_id IN ${ownStaff}`);
+      }
+      for (const t of ["notifications", "checkout_idempotency_keys", "service_consumables", "hr_store_holidays", "tax_rates", "expense_categories"]) {
+        await tx.execute(sql`DELETE FROM ${sql.identifier(t)} WHERE store_id = ${id}`);
+      }
+      const ownInventory = sql`(SELECT id FROM inventory WHERE store_id = ${id})`;
+      await tx.execute(sql`DELETE FROM bundle_components WHERE parent_inventory_id IN ${ownInventory} OR component_inventory_id IN ${ownInventory}`);
+      await tx.execute(sql`DELETE FROM inventory WHERE store_id = ${id}`);
+      await tx.execute(sql`DELETE FROM products WHERE store_id = ${id}`);
       // Assignments of people homed elsewhere reference this store without a cascade.
       await tx.delete(staffStoreAssignments).where(eq(staffStoreAssignments.storeId, id));
+      await tx.update(stores).set({ managerStaffId: null }).where(eq(stores.id, id));
       await tx.delete(staff).where(eq(staff.storeId, id));
       await tx.delete(storeCounters).where(eq(storeCounters.storeId, id));
-      await tx.update(stores).set({ managerStaffId: null }).where(eq(stores.id, id));
+      await tx.delete(settings).where(eq(settings.storeId, id));
       const result = await tx.delete(stores).where(eq(stores.id, id)).returning();
       return result.length > 0;
     });

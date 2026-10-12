@@ -11,15 +11,14 @@ import {
   insertBusinessSchema,
   insertStoreSchema,
   insertCustomerSchema, insertStoreIntegrationSchema, type Store, transactions,
-  customers,
-  inventory, subscriptions,
+  subscriptions,
   announcements,
   plans
 } from "@shared/schema";
 import { z } from "zod";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { db } from "../db";
-import { eq, and, gte, lte, count, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { sanitizeString, sanitizePhoneNumber } from "../sanitize";
 import { auditLogger } from "../audit";
 import { loadActiveBusiness, loadVisibleStores } from "../lib/shellData";
@@ -38,6 +37,38 @@ export type RouteMiddlewares = {
   requireManagerOrOwner: any;
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
+
+const STORE_BLOCKER_LABELS: Record<string, string> = {
+  customers: "customers",
+  inventory_with_stock: "inventory with stock on hand",
+  checkouts: "sales",
+  orders: "orders",
+  transactions: "transactions",
+  expenses: "expenses",
+  stock_movements: "stock movements",
+  stock_transfers: "stock transfers",
+  partner_transfers: "partner transfers",
+  purchase_orders: "purchase orders",
+  vendor_bills: "vendor bills",
+  vendors: "vendors",
+  credit_entries: "credit records",
+  store_credit_transactions: "store credit records",
+  payroll_entries: "payroll records",
+  payroll_periods: "payroll records",
+  attendance_punches: "attendance records",
+  attendance_records: "attendance records",
+  bookings: "bookings",
+  cash_register_sessions: "cash register sessions",
+  store_payment_accounts: "payment accounts",
+  hr_documents: "staff documents",
+  staff_contracts: "staff contracts",
+};
+
+function describeStoreDeletionBlockers(blockers: { table: string; count: number }[]): string {
+  const labels = Array.from(new Set(blockers.map((b) => STORE_BLOCKER_LABELS[b.table] ?? b.table.replace(/_/g, " "))));
+  const shown = labels.slice(0, 5).join(", ");
+  return labels.length > 5 ? `${shown} and ${labels.length - 5} more kinds of records` : shown;
+}
 
 export function registerBusinessRoutes(app: Express, { isAuthenticated, requireRole, requireManagerOrOwner, checkStoreAccess }: RouteMiddlewares): void {
   // ========== GEOCODE (branch location search) ==========
@@ -660,9 +691,10 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
     }
   });
 
-  // Permanently delete an archived store. Rarer than archiving - still blocked
-  // while the store has customers, staff, or inventory, since those aren't
-  // safe to cascade-delete.
+  // Permanently delete an archived store. Staff don't block (they're removed with
+  // the store). Customers, stock on hand and any transaction history do, since
+  // deleting those would corrupt reports and audit trails - such a store stays
+  // archived.
   app.delete("/api/stores/:id", requireRole("owner"), async (req, res) => {
     try {
       const store = await storage.getStore(req.params.id);
@@ -676,16 +708,16 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       if (store.isActive) {
         return res.status(400).json({ error: "Only archived stores can be permanently deleted." });
       }
+      if (store.isMain) {
+        return res.status(400).json({ error: "Set another store as main before deleting this one." });
+      }
 
-      const customerCount = await db.select({ count: count() }).from(customers).where(eq(customers.storeId, req.params.id));
-      const inventoryCount = await db.select({ count: count() }).from(inventory).where(eq(inventory.storeId, req.params.id));
-
-      const staffList = await storage.getStaffList(req.params.id);
-      const nonOwnerStaff = staffList.filter(s => s.userId !== (req as any).user?.id && s.email !== (req as any).user?.email);
-
-      if (customerCount[0].count > 0 || inventoryCount[0].count > 0 || nonOwnerStaff.length > 0) {
+      const blockers = await storage.getStoreDeletionBlockers(req.params.id);
+      if (blockers.length > 0) {
+        const labels = describeStoreDeletionBlockers(blockers);
         return res.status(400).json({
-          error: "This store has customers, staff, or inventory. Please remove them first before deleting the store."
+          error: `This store can't be permanently deleted because it still has ${labels}. Keep it archived to preserve your records.`,
+          blockers: blockers.map((b) => ({ ...b, label: STORE_BLOCKER_LABELS[b.table] ?? b.table.replace(/_/g, " ") })),
         });
       }
 
@@ -697,6 +729,10 @@ export function registerBusinessRoutes(app: Express, { isAuthenticated, requireR
       auditLogger.logEvent(ctx, "PERMANENT_DELETE", "store", req.params.id, "success", { previousValues: store });
       res.status(204).send();
     } catch (error) {
+      // A record we didn't anticipate still points at this store.
+      if ((error as any)?.code === "23503" || (error as any)?.cause?.code === "23503") {
+        return res.status(400).json({ error: "This store still has linked records and can't be permanently deleted. Keep it archived instead." });
+      }
       res.status(500).json({ error: "We couldn't delete the store. Please try again." });
     }
   });
