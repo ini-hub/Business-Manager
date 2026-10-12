@@ -1,5 +1,5 @@
 import type { RequestHandler } from "express";
-import { sql, eq, and, or, lte, inArray } from "drizzle-orm";
+import { sql, eq, and, or, lte, gt, isNull, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { createTtlCache } from "./ttlCache";
 import {
@@ -580,13 +580,25 @@ export async function loadLimitTiers(conn: DbOrTx | Tx = db): Promise<LimitTier[
   return rows;
 }
 
-/** Keys of the active limit tiers (seat packs, capacity add-ons) an org holds for one limit type. */
+/**
+ * Entitlement rows in force right now: 'active', or 'pending_removal' still inside its grace period. The feature grant
+ * (computePurchasedGrant) already reads them this way, so the count caps must too, or a scheduled removal would drop
+ * the cap while the pack's features stay on.
+ */
+function inForceNow(now = new Date()) {
+  return or(
+    eq(orgFeatureEntitlements.status, "active"),
+    and(eq(orgFeatureEntitlements.status, "pending_removal"), or(isNull(orgFeatureEntitlements.removalEffectiveAt), gt(orgFeatureEntitlements.removalEffectiveAt, now))),
+  );
+}
+
+/** Keys of the limit tiers in force (seat packs, capacity add-ons) an org holds for one limit type. */
 async function loadOwnedTierKeys(conn: DbOrTx | Tx, organisationId: string, limitType: CountLimitType): Promise<string[]> {
   const rows = await conn
     .select({ key: featureCatalog.key })
     .from(orgFeatureEntitlements)
     .innerJoin(featureCatalog, eq(orgFeatureEntitlements.featureId, featureCatalog.id))
-    .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), eq(orgFeatureEntitlements.status, "active"), eq(featureCatalog.limitType, limitType)));
+    .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), inForceNow(), eq(featureCatalog.limitType, limitType)));
   return rows.map((r) => r.key);
 }
 
@@ -873,7 +885,7 @@ export async function getCountLimitStatuses(
           .select({ key: featureCatalog.key, limitType: featureCatalog.limitType })
           .from(orgFeatureEntitlements)
           .innerJoin(featureCatalog, eq(orgFeatureEntitlements.featureId, featureCatalog.id))
-          .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), eq(orgFeatureEntitlements.status, "active"))),
+          .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), inForceNow())),
     loadLimitTiers(),
     staffUsedByStore(db, organisationId),
     orgWideCounts(organisationId),

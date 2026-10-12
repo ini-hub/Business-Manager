@@ -441,7 +441,7 @@ export const FEATURES = [
     screens: ["/settings/taxes"], gatedScreens: ["/settings/taxes"],
   },
   {
-    key: "stock_transfer", section: "management", module: "Inventory & Catalog", name: "Stock Transfers", description: "Included with Additional Store. Move stock between your stores.",
+    key: "stock_transfer", section: "management", module: "Inventory & Catalog", name: "Stock Transfers", description: "Included with every store pack and Additional Store. Move stock between your stores.",
     category: "inventory_mgmt", tier: "bundle_child", parent: "store_addon", active: true, sortOrder: 420,
     coveredBy: "granted and gated through the store_addon parent; its routes and screen below are gated on this key",
     domains: ["stock-transfers", "stock-transfer-drafts"],
@@ -524,7 +524,7 @@ export const FEATURES = [
     dependsOn: ["staff_management"],
   },
   {
-    key: "staff_transfer", section: "management", groupParent: "staff_management", module: "Staff & Payroll", name: "Transfer Staff Between Stores", description: "Included with Additional Store. Move a staff member to another store.",
+    key: "staff_transfer", section: "management", groupParent: "staff_management", module: "Staff & Payroll", name: "Transfer Staff Between Stores", description: "Included with every store pack and Additional Store. Move a staff member to another store.",
     category: "staff_mgmt", tier: "bundle_child", parent: "store_addon", active: true, sortOrder: 510,
     routes: [{ methods: ["POST"], path: /^\/api\/staff\/[^/]+\/transfer$/ }],
   },
