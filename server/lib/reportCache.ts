@@ -53,7 +53,8 @@ export function cachedReport<T>(
   if (hit) drop(key);
 
   const startedAt = opts.tags.map(versionOf);
-  const value = load();
+  // Settled into a real promise: a lazy thenable (a drizzle query) would re-run on every await.
+  const value = (async () => load())();
   const entry: Entry = { at: Date.now(), value, tags: opts.tags };
   entries.set(key, entry);
   for (const tag of opts.tags) {
