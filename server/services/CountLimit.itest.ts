@@ -4,19 +4,24 @@ import { and, count, eq } from "drizzle-orm";
 import { customers, organisations, orgFeatureEntitlements } from "@shared/schema";
 import { storage } from "../storage";
 import { CountLimitError, grantFeatureEntitlement } from "../lib/entitlements";
+import { getFeatureDef } from "@shared/features";
 import {
   assertTestDatabase, ensureSchema, createFixture, sweepResidue, closePool, type Fixture,
 } from "../test-support/integration-db";
 
 /**
- * The free-tier caps (1 staff, 50 customers, 1 store) are enforced inside the
+ * The free-tier caps (staff seats per store, customers, 1 store) are enforced inside the
  * storage layer, in the same transaction as the write, so every create /
  * restore / bulk path is covered by construction. An org already over the cap
  * keeps its rows and is only blocked from adding more.
  *
  * createFixture makes an org with status 'active' and no trialEndsAt, i.e. a
  * post-trial free-tier org, with exactly 1 staff, 1 store and 1 customer.
+ *
+ * The caps are read from the feature registry, so changing a free tier there cannot silently stale these tests.
  */
+const STAFF_CAP = getFeatureDef("staff_seats_addon")!.freeLimit!;
+const CUSTOMER_CAP = getFeatureDef("customer_capacity_addon")!.freeLimit!;
 
 let fixtures: Fixture[] = [];
 
@@ -32,6 +37,11 @@ function staffInput(storeId: string, tag: string) {
     email: `hire-${tag}@example.test`, mobileNumber: `0801${tag.slice(-7).padStart(7, "0")}`,
     payPerMonth: 0, staffNumber: "", paymentMethod: "fixed" as const,
   } as any;
+}
+
+/** Hires until the store sits exactly at its seat cap (the fixture already holds one seat). */
+async function fillStaffToCap(f: Fixture, tag: string) {
+  for (let i = 1; i < STAFF_CAP; i++) await storage.createStaff(staffInput(f.storeId, `${tag}${i}`));
 }
 
 beforeAll(async () => {
@@ -54,20 +64,24 @@ afterAll(async () => {
 });
 
 describe("staff seat cap", () => {
-  it("blocks a second staff member on the free tier with a typed 402 error", async () => {
+  it("blocks a hire past the free seat cap with a typed 402 error", async () => {
     const f = await newFixture();
-    const err = await storage.createStaff(staffInput(f.storeId, `${Date.now()}1`)).catch((e) => e);
+    await fillStaffToCap(f, `${Date.now()}1`);
+    const err = await storage.createStaff(staffInput(f.storeId, `${Date.now()}9`)).catch((e) => e);
     expect(err).toBeInstanceOf(CountLimitError);
-    expect(err.toBody()).toMatchObject({ error: "count_limit_reached", limitType: "staff_seats", limit: 1, used: 1, featureKey: "staff_seats_addon" });
+    expect(err.toBody()).toMatchObject({ error: "count_limit_reached", limitType: "staff_seats", limit: STAFF_CAP, used: STAFF_CAP, featureKey: "staff_seats_addon" });
   });
 
-  it("frees the seat when the only staff member is archived, and blocks restoring them past the cap", async () => {
+  it("frees the seat when a staff member is archived, and blocks restoring them past the cap", async () => {
     const f = await newFixture();
     await storage.archiveStaff(f.staffId);
-    const hire = await storage.createStaff(staffInput(f.storeId, `${Date.now()}2`));
-    expect(hire.id).toBeTruthy();
+    // Archiving freed their seat, so the store can be filled to the cap again with new hires.
+    for (let i = 0; i < STAFF_CAP; i++) {
+      const hire = await storage.createStaff(staffInput(f.storeId, `${Date.now()}2${i}`));
+      expect(hire.id).toBeTruthy();
+    }
 
-    // Restoring the archived original would make 2 active seats.
+    // Restoring the archived original would put the store one seat over the cap.
     await expect(storage.restoreStaff(f.staffId)).rejects.toBeInstanceOf(CountLimitError);
     expect((await storage.getStaff(f.staffId))?.isArchived).toBe(true);
   });
@@ -111,12 +125,12 @@ describe("customer cap", () => {
     await db.insert(customers).values(rows);
   }
 
-  it("blocks the 51st customer, and restore, but existing rows stay untouched", async () => {
+  it("blocks the customer past the cap, and restore, but existing rows stay untouched", async () => {
     const f = await newFixture();
-    await fillCustomers(f, 50); // fixture already has 1, so 50 active in total
+    await fillCustomers(f, CUSTOMER_CAP); // fixture already has 1, so CUSTOMER_CAP active in total
 
     await expect(storage.createCustomer({ storeId: f.storeId, name: "One too many", customerNumber: "", address: "" } as any))
-      .rejects.toMatchObject({ limitType: "customer_count", limit: 50, used: 50 });
+      .rejects.toMatchObject({ limitType: "customer_count", limit: CUSTOMER_CAP, used: CUSTOMER_CAP });
 
     // Archive one, add a replacement, restoring would overshoot.
     await storage.archiveCustomer(f.customerId);
@@ -127,12 +141,12 @@ describe("customer cap", () => {
       .select({ active: count() })
       .from(customers)
       .where(and(eq(customers.storeId, f.storeId), eq(customers.isArchived, false)));
-    expect(Number(active)).toBe(50);
+    expect(Number(active)).toBe(CUSTOMER_CAP);
   });
 
   it("keeps an over-limit org's data and only blocks additions (downgrade policy)", async () => {
     const f = await newFixture();
-    await fillCustomers(f, 60); // e.g. built up during the trial
+    await fillCustomers(f, CUSTOMER_CAP + 10); // e.g. built up during the trial
     expect(await storage.getCustomer(f.customerId)).toBeDefined();
     await expect(storage.createCustomer({ storeId: f.storeId, name: "More", customerNumber: "", address: "" } as any))
       .rejects.toBeInstanceOf(CountLimitError);
@@ -151,6 +165,7 @@ describe("trial and purchase bypass", () => {
 
   it("limits the same org once the trial has ended", async () => {
     const f = await newFixture();
+    await fillStaffToCap(f, `${Date.now()}5`);
     await db.update(organisations)
       .set({ status: "trialing", trialEndsAt: new Date(Date.now() - 60 * 1000) })
       .where(eq(organisations.id, f.businessId));
@@ -159,7 +174,8 @@ describe("trial and purchase bypass", () => {
 
   it("serialises concurrent creates so only one gets the last free slot", async () => {
     const f = await newFixture();
-    await storage.archiveStaff(f.staffId); // 0 of 1 seats used
+    await fillStaffToCap(f, `${Date.now()}6`);
+    await storage.archiveStaff(f.staffId); // frees one seat: exactly one slot open
     const tag = `${Date.now()}`;
     const results = await Promise.allSettled([
       storage.createStaff(staffInput(f.storeId, `${tag}6`)),
@@ -168,5 +184,6 @@ describe("trial and purchase bypass", () => {
     ]);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(results.filter((r) => r.status === "rejected" && (r as PromiseRejectedResult).reason instanceof CountLimitError)).toHaveLength(2);
-  });
+    // Fill + three advisory-lock-serialised creates: more round trips than the 60s default allows on a remote DB.
+  }, 180_000);
 });
