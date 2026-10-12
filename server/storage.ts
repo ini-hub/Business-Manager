@@ -272,6 +272,7 @@ interface IStorage {
   getTransactions(storeId: string | string[], filters?: TransactionFilters): Promise<TransactionWithRelations[]>;
   getTransactionIndex(storeIds: string[], filters?: TransactionFilters): Promise<any[]>;
   getReceiptPage(storeIds: string[], opts: Parameters<TransactionRepository["getReceiptPage"]>[1]): ReturnType<TransactionRepository["getReceiptPage"]>;
+  getReceiptTotals(storeIds: string[], opts: Parameters<TransactionRepository["getReceiptTotals"]>[1]): ReturnType<TransactionRepository["getReceiptTotals"]>;
   getTransactionsByIds(ids: string[]): Promise<TransactionWithRelations[]>;
   getTransactionById(id: string): Promise<TransactionWithRelations | null>;
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
@@ -1066,6 +1067,10 @@ class DatabaseStorage implements IStorage {
 
   async getReceiptPage(storeIds: string[], opts: Parameters<TransactionRepository["getReceiptPage"]>[1]) {
     return this.transactionRepo.getReceiptPage(storeIds, opts);
+  }
+
+  async getReceiptTotals(storeIds: string[], opts: Parameters<TransactionRepository["getReceiptTotals"]>[1]) {
+    return this.transactionRepo.getReceiptTotals(storeIds, opts);
   }
 
   async getTransactionsByIds(ids: string[]): Promise<TransactionWithRelations[]> {
