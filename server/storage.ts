@@ -877,7 +877,6 @@ class DatabaseStorage implements IStorage {
     return this.staffRepo.getAllStaffByUserId(userId);
   }
 
-  async getInviteProjection(userIds: string[], organisationId: string) {
   async assignedStoreIds(staffId: string): Promise<string[]> {
     return this.staffRepo.assignedStoreIds(staffId);
   }
