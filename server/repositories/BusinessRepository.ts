@@ -7,6 +7,7 @@ import {
   stores,
   storeCounters,
   staff,
+  staffStoreAssignments,
   settings,
   promotions,
   customRoles,
@@ -211,6 +212,8 @@ export class BusinessRepository {
 
   async deleteStore(id: string): Promise<boolean> {
     return await db.transaction(async (tx) => {
+      // Assignments of people homed elsewhere reference this store without a cascade.
+      await tx.delete(staffStoreAssignments).where(eq(staffStoreAssignments.storeId, id));
       await tx.delete(staff).where(eq(staff.storeId, id));
       await tx.delete(storeCounters).where(eq(storeCounters.storeId, id));
       await tx.update(stores).set({ managerStaffId: null }).where(eq(stores.id, id));
@@ -275,7 +278,9 @@ export class BusinessRepository {
     const customerCount = await db.select({ count: count() }).from(customers).where(eq(customers.storeId, id));
     const staffCount = await db.select({ count: count() }).from(staff).where(eq(staff.storeId, id));
     const inventoryCount = await db.select({ count: count() }).from(inventory).where(eq(inventory.storeId, id));
-    return customerCount[0].count > 0 || staffCount[0].count > 0 || inventoryCount[0].count > 0;
+    // People homed elsewhere but assigned here count as staff data too.
+    const assignedCount = await db.select({ count: count() }).from(staffStoreAssignments).where(eq(staffStoreAssignments.storeId, id));
+    return customerCount[0].count > 0 || staffCount[0].count > 0 || assignedCount[0].count > 0 || inventoryCount[0].count > 0;
   }
 
   // ─── Store Integrations ────────────────────────────────────────────────────

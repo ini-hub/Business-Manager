@@ -187,7 +187,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
 
-      const data = await storage.getStaffPerformance(staffMember.storeId, startDate, endDate, staffMember.id);
+      const data = await storage.getStaffPerformance(storeId ?? staffMember.storeId, startDate, endDate, staffMember.id);
       const own = data.find(s => s.id === staffMember.id);
       res.json(own ?? {
         id: staffMember.id,
@@ -217,7 +217,7 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
 
-      const data = await storage.getStaffBreakdown(staffMember.id, staffMember.storeId, startDate, endDate);
+      const data = await storage.getStaffBreakdown(staffMember.id, storeId ?? staffMember.storeId, startDate, endDate);
       res.json(data);
     } catch (error) {
       console.error(error);
@@ -559,7 +559,9 @@ export function registerReportsRoutes(app: Express, { isAuthenticated, requireRo
       res.status(404).json({ error: "No staff record is linked to your account. Ask your manager to link it." });
       return null;
     }
-    return staffRecord;
+    // The record as seen at the store being worked in: for a person assigned to several stores
+    // storeId is that store, not their home store, so punches and requests land where they work.
+    return { ...staffRecord, storeId: storeId ?? staffRecord.storeId };
   };
 
   app.get("/api/attendance/today", isAuthenticated, async (req, res) => {

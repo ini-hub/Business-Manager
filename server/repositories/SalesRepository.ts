@@ -8,7 +8,7 @@ import {
   transactions,
   inventory,
   customers,
-  staff, settings,
+  staff, staffStoreAssignments, settings,
   taxRates,
   promotions,
   profitLoss,
@@ -521,7 +521,15 @@ export class SalesRepository {
           throw new Error("Please select a valid staff member to complete this sale.");
         }
         if (staffMember.storeId !== data.storeId) {
-          throw new Error(`Staff member "${staffMember.name}" does not belong to this store branch.`);
+          // Not homed here: valid only with an active assignment to this store.
+          const [assignment] = await tx.select({ id: staffStoreAssignments.id }).from(staffStoreAssignments).where(and(
+            eq(staffStoreAssignments.staffId, staffMember.id),
+            eq(staffStoreAssignments.storeId, data.storeId),
+            eq(staffStoreAssignments.isArchived, false),
+          )).limit(1);
+          if (!assignment || staffMember.isArchived) {
+            throw new Error(`Staff member "${staffMember.name}" does not belong to this store branch.`);
+          }
         }
 
         const hasCashPayment = data.paymentMethod === "cash" ||
@@ -581,6 +589,18 @@ export class SalesRepository {
         if (assignedStaffIds.length > 0) {
           for (const row of await tx.select().from(staff).where(inArray(staff.id, assignedStaffIds))) assignedStaff.set(row.id, row);
         }
+        // Line staff homed at another store count as this store's own when they hold an active assignment here.
+        const assignedHere = new Set<string>();
+        const awayIds = Array.from(assignedStaff.values()).filter((m) => m.storeId !== data.storeId && !m.isArchived).map((m) => m.id);
+        if (awayIds.length > 0) {
+          const rows = await tx.select({ staffId: staffStoreAssignments.staffId }).from(staffStoreAssignments).where(and(
+            inArray(staffStoreAssignments.staffId, awayIds),
+            eq(staffStoreAssignments.storeId, data.storeId),
+            eq(staffStoreAssignments.isArchived, false),
+          ));
+          for (const r of rows) assignedHere.add(r.staffId);
+        }
+        const belongsHere = (m: typeof staff.$inferSelect) => m.storeId === data.storeId || assignedHere.has(m.id);
 
         for (const item of data.items) {
           const inventoryItem = itemRows.get(item.inventoryId);
@@ -607,7 +627,7 @@ export class SalesRepository {
           if (item.leadStaffId) {
             const leadStaffMember = assignedStaff.get(item.leadStaffId);
             if (!leadStaffMember) throw new Error("One of the assigned lead staff members is invalid.");
-            if (leadStaffMember.storeId !== data.storeId) {
+            if (!belongsHere(leadStaffMember)) {
               throw new Error(`Lead staff member "${leadStaffMember.name}" does not belong to this store branch.`);
             }
           }
@@ -615,7 +635,7 @@ export class SalesRepository {
           if (item.assistingStaff1Id) {
             const ass1Member = assignedStaff.get(item.assistingStaff1Id);
             if (!ass1Member) throw new Error("One of the assigned assisting staff members is invalid.");
-            if (ass1Member.storeId !== data.storeId) {
+            if (!belongsHere(ass1Member)) {
               throw new Error(`Assisting staff member "${ass1Member.name}" does not belong to this store branch.`);
             }
           }
@@ -623,7 +643,7 @@ export class SalesRepository {
           if (item.assistingStaff2Id) {
             const ass2Member = assignedStaff.get(item.assistingStaff2Id);
             if (!ass2Member) throw new Error("One of the assigned assisting staff members is invalid.");
-            if (ass2Member.storeId !== data.storeId) {
+            if (!belongsHere(ass2Member)) {
               throw new Error(`Assisting staff member "${ass2Member.name}" does not belong to this store branch.`);
             }
           }
