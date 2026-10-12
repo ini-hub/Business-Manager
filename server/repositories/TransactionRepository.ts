@@ -28,6 +28,17 @@ import { eq, and, or, ilike, desc, gte, lte, inArray, exists, sql } from "drizzl
 import { serializeUser } from "../storage";
 import { searchTokens, infix } from "../lib/searchTerms";
 
+export interface ReceiptTotals {
+  gross: number;
+  refunded: number;
+  completedCount: number;
+  receiptCount: number;
+  listPrice: number;
+  discounts: number;
+  tax: number;
+  pending: number;
+}
+
 export interface TransactionFilters {
   startDate?: Date;
   endDate?: Date;
@@ -289,6 +300,118 @@ export class TransactionRepository {
   }
 
   /**
+   * The SQL fragments shared by every receipt-level query (the page and the totals): the date window, the
+   * viewer's staff scope and the search, expressed against the `lines` / `ranked` CTE columns. Returns null
+   * when there is nothing the caller may see (no stores, or an empty scope, which fails closed).
+   */
+  private receiptFilterSql(
+    storeIds: string[],
+    opts: { startDate?: Date; endDate?: Date; scope?: ReadonlySet<string> | null; search?: string },
+  ) {
+    if (storeIds.length === 0) return null;
+    const scopeIds = opts.scope ? Array.from(opts.scope) : null;
+    if (scopeIds && scopeIds.length === 0) return null; // fails closed, like filterToScope
+
+    const list = (ids: string[]) => sql.join(ids.map((id) => sql`${id}`), sql`, `);
+    // Bound as ISO strings cast to timestamp: a raw Date parameter is formatted in the Node process's local
+    // zone by the driver, but transaction_date holds naive UTC (Drizzle's column comparisons convert for us;
+    // a hand-written statement has to do it itself).
+    const dateFilter = sql`${opts.startDate ? sql`AND t.transaction_date >= ${opts.startDate.toISOString()}::timestamp` : sql``} ${opts.endDate ? sql`AND t.transaction_date <= ${opts.endDate.toISOString()}::timestamp` : sql``}`;
+    const scopeTest = scopeIds
+      ? sql`(r.staff_id IN (${list(scopeIds)}) OR r.others_in_scope)`
+      : sql`TRUE`;
+    const pattern = opts.search ? `%${opts.search.replace(/[\\%_]/g, "\\$&")}%` : null;
+    const searchTest = pattern
+      ? sql`(COALESCE(r.receipt_number, '') ILIKE ${pattern} ESCAPE '\\' OR r.line_id ILIKE ${pattern} ESCAPE '\\' OR r.inv_name ILIKE ${pattern} ESCAPE '\\' OR r.cust_name ILIKE ${pattern} ESCAPE '\\')`
+      : sql`TRUE`;
+    const othersInScope = scopeIds
+      ? sql`bool_or(l.lead IN (${list(scopeIds)}) OR l.a1 IN (${list(scopeIds)}) OR l.a2 IN (${list(scopeIds)})) OVER (PARTITION BY l.gkey)`
+      : sql`FALSE`;
+    return { list, dateFilter, scopeTest, searchTest, othersInScope };
+  }
+
+  /**
+   * Money totals over every receipt matching the same date window, staff scope and search as getReceiptPage,
+   * in one statement, so a screen can show the whole range rather than the page it happens to have loaded.
+   * Receipt rules mirror the list: lines group by receipt, a receipt is voided when its representative line's
+   * checkout is, gross is the sum of the lines' total_charged and refunded the sum of their orders'
+   * refunded_amount (both skipped for voided receipts), and a receipt counts as completed when it is not
+   * voided and not every line has been returned in full.
+   *
+   * The rest explains how "gross" relates to the list price and to the Profit & Loss (which counts completed
+   * payments only and takes order line prices before discounts): `listPrice` is the sum of the lines' order
+   * prices, `discounts` what came off it before tax, `tax` the tax added, and `pending` the part of gross whose
+   * payment has not been collected yet. gross = listPrice − discounts + tax.
+   */
+  async getReceiptTotals(
+    storeIds: string[],
+    opts: { startDate?: Date; endDate?: Date; scope?: ReadonlySet<string> | null; search?: string },
+  ): Promise<ReceiptTotals> {
+    const f = this.receiptFilterSql(storeIds, opts);
+    if (!f) return { gross: 0, refunded: 0, completedCount: 0, receiptCount: 0, listPrice: 0, discounts: 0, tax: 0, pending: 0 };
+    const { list, dateFilter, scopeTest, searchTest, othersInScope } = f;
+
+    const result = await db.execute(sql`
+      WITH lines AS (
+        SELECT t.id AS line_id, t.transaction_date AS tdate, c.is_addendum AS addendum, c.receipt_number,
+               c.staff_id, c.lead_staff_id AS lead, c.assisting_staff1_id AS a1, c.assisting_staff2_id AS a2,
+               COALESCE(NULLIF(c.receipt_number, ''), t.checkout_id, t.id) AS gkey,
+               i.name AS inv_name, cu.name AS cust_name,
+               c.is_voided AS voided, c.total_charged::numeric AS charged,
+               COALESCE(o.refunded_amount, 0)::numeric AS refunded,
+               c.tax_total::numeric AS tax,
+               COALESCE(o.total_price, c.total_charged - c.tax_total)::numeric AS list_price,
+               CASE WHEN c.payment_status = 'pending' THEN c.total_charged::numeric ELSE 0 END AS pending,
+               (COALESCE(o.returned_quantity, 0)::numeric >= COALESCE(o.quantity, 1)::numeric) AS line_returned
+        FROM transactions t
+        JOIN checkouts c ON c.id = t.checkout_id
+        LEFT JOIN orders o ON o.id = c.order_id
+        JOIN inventory i ON i.id = t.inventory_id
+        JOIN customers cu ON cu.id = t.customer_id
+        WHERE t.store_id IN (${list(storeIds)}) ${dateFilter}
+      ),
+      ranked AS (
+        SELECT l.*,
+               row_number() OVER (PARTITION BY l.gkey ORDER BY COALESCE(l.addendum, false) ASC, l.tdate DESC, l.line_id) AS rn,
+               ${othersInScope} AS others_in_scope,
+               sum(l.charged) OVER (PARTITION BY l.gkey) AS r_charged,
+               sum(l.refunded) OVER (PARTITION BY l.gkey) AS r_refunded,
+               sum(l.tax) OVER (PARTITION BY l.gkey) AS r_tax,
+               sum(l.list_price) OVER (PARTITION BY l.gkey) AS r_list_price,
+               sum(l.pending) OVER (PARTITION BY l.gkey) AS r_pending,
+               bool_and(l.line_returned) OVER (PARTITION BY l.gkey) AS r_all_returned
+        FROM lines l
+      )
+      SELECT
+        count(*) AS receipt_count,
+        count(*) FILTER (WHERE NOT r.voided AND NOT r.r_all_returned) AS completed_count,
+        COALESCE(sum(r.r_charged) FILTER (WHERE NOT r.voided), 0)::numeric AS gross,
+        COALESCE(sum(r.r_refunded) FILTER (WHERE NOT r.voided), 0)::numeric AS refunded,
+        COALESCE(sum(r.r_tax) FILTER (WHERE NOT r.voided), 0)::numeric AS tax,
+        COALESCE(sum(r.r_list_price) FILTER (WHERE NOT r.voided), 0)::numeric AS list_price,
+        COALESCE(sum(r.r_pending) FILTER (WHERE NOT r.voided), 0)::numeric AS pending
+      FROM ranked r
+      WHERE r.rn = 1 AND ${scopeTest} AND ${searchTest}
+    `);
+
+    const row = (result.rows[0] ?? {}) as Record<string, string | number | null>;
+    const gross = Number(row.gross) || 0;
+    const tax = Number(row.tax) || 0;
+    const listPrice = Number(row.list_price) || 0;
+    return {
+      gross,
+      refunded: Number(row.refunded) || 0,
+      completedCount: Number(row.completed_count) || 0,
+      receiptCount: Number(row.receipt_count) || 0,
+      listPrice,
+      // What came off the list price before tax: manual discounts and redeemed loyalty points together.
+      discounts: Math.max(0, Math.round((listPrice - (gross - tax)) * 100) / 100),
+      tax,
+      pending: Number(row.pending) || 0,
+    };
+  }
+
+  /**
    * One page of receipts, decided entirely in SQL: which receipts exist, which the viewer may see, which match
    * the search, how many there are in total, and which fall on this page. Only the page's line ids come back,
    * so the work no longer grows with the store's whole history (the old path loaded an index row for every
@@ -308,25 +431,9 @@ export class TransactionRepository {
     opts: { startDate?: Date; endDate?: Date; customerId?: string; scope?: ReadonlySet<string> | null; search?: string; offset: number; limit: number },
   ): Promise<{ keys: string[]; lineIds: string[]; total: number }> {
     const empty = { keys: [] as string[], lineIds: [] as string[], total: 0 };
-    if (storeIds.length === 0) return empty;
-    const scopeIds = opts.scope ? Array.from(opts.scope) : null;
-    if (scopeIds && scopeIds.length === 0) return empty; // fails closed, like filterToScope
-
-    const list = (ids: string[]) => sql.join(ids.map((id) => sql`${id}`), sql`, `);
-    // Bound as ISO strings cast to timestamp: a raw Date parameter is formatted in the Node process's local
-    // zone by the driver, but transaction_date holds naive UTC (Drizzle's column comparisons convert for us;
-    // a hand-written statement has to do it itself).
-    const dateFilter = sql`${opts.startDate ? sql`AND t.transaction_date >= ${opts.startDate.toISOString()}::timestamp` : sql``} ${opts.endDate ? sql`AND t.transaction_date <= ${opts.endDate.toISOString()}::timestamp` : sql``}`;
-    const scopeTest = scopeIds
-      ? sql`(r.staff_id IN (${list(scopeIds)}) OR r.others_in_scope)`
-      : sql`TRUE`;
-    const pattern = opts.search ? `%${opts.search.replace(/[\\%_]/g, "\\$&")}%` : null;
-    const searchTest = pattern
-      ? sql`(COALESCE(r.receipt_number, '') ILIKE ${pattern} ESCAPE '\\' OR r.line_id ILIKE ${pattern} ESCAPE '\\' OR r.inv_name ILIKE ${pattern} ESCAPE '\\' OR r.cust_name ILIKE ${pattern} ESCAPE '\\')`
-      : sql`TRUE`;
-    const othersInScope = scopeIds
-      ? sql`bool_or(l.lead IN (${list(scopeIds)}) OR l.a1 IN (${list(scopeIds)}) OR l.a2 IN (${list(scopeIds)})) OVER (PARTITION BY l.gkey)`
-      : sql`FALSE`;
+    const f = this.receiptFilterSql(storeIds, opts);
+    if (!f) return empty;
+    const { list, dateFilter, scopeTest, searchTest, othersInScope } = f;
 
     const result = await db.execute(sql`
       WITH lines AS (

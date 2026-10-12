@@ -194,3 +194,82 @@ describe("getReceiptPage agrees with the JavaScript pipeline it replaces", () =>
     expect(got.total).toBe(5);
   });
 });
+
+describe("getReceiptTotals adds up the same receipts the list shows", () => {
+  const A = () => new Set([fixture.staffId]);
+
+  /** Old way: page everything, group in JS, then the arithmetic the Transactions page used to do client-side. */
+  async function oracleTotals(opts: { startDate?: Date; endDate?: Date; scope: Set<string> | null; search?: string }) {
+    const all = await storage.getReceiptPage([fixture.storeId], { ...opts, offset: 0, limit: 1000 });
+    const receipts = groupTransactions(await storage.getTransactionsByIds(all.lineIds));
+    let gross = 0, refunded = 0, completedCount = 0;
+    for (const g of receipts) {
+      if (g.checkout?.isVoided) continue;
+      gross += Number(g.checkout?.totalCharged) || 0;
+      refunded += Number(g.checkout?.refundedAmount) || 0;
+      if (!((g.checkout?.returnedQuantity ?? 0) >= (g.checkout?.quantity ?? 1))) completedCount++;
+    }
+    return { gross, refunded, completedCount, receiptCount: all.total };
+  }
+
+  // The four figures the old client-side arithmetic produced; the breakdown fields are checked separately.
+  const totals = async (opts: { startDate?: Date; endDate?: Date; scope: Set<string> | null; search?: string }) => {
+    const t = await storage.getReceiptTotals([fixture.storeId], opts);
+    return { gross: t.gross, refunded: t.refunded, completedCount: t.completedCount, receiptCount: t.receiptCount };
+  };
+
+  beforeAll(async () => {
+    // The three single-line receipts, oldest first: void one, return one in full, part-return one.
+    const singles = await db.execute(sql`
+      SELECT c.id, c.order_id, o.quantity FROM checkouts c JOIN orders o ON o.id = c.order_id
+      WHERE c.store_id = ${fixture.storeId}
+        AND (SELECT count(*) FROM checkouts c2 WHERE c2.store_id = c.store_id AND c2.receipt_number = c.receipt_number) = 1
+      ORDER BY c.created_at ASC`);
+    expect(singles.rows).toHaveLength(3);
+    const [voided, returned, partial] = singles.rows as { id: string; order_id: string; quantity: string }[];
+    await db.update(checkouts).set({ isVoided: true }).where(eq(checkouts.id, voided.id));
+    await db.execute(sql`UPDATE orders SET returned_quantity = quantity, refunded_amount = total_price WHERE id = ${returned.order_id}`);
+    await db.execute(sql`UPDATE orders SET returned_quantity = 1, refunded_amount = 100 WHERE id = ${partial.order_id}`);
+  });
+
+  it("matches the receipt-by-receipt arithmetic with no restriction", async () => {
+    const want = await oracleTotals({ scope: null });
+    const got = await totals({ scope: null });
+    expect(got).toEqual(want);
+    expect(got.receiptCount).toBe(5);
+    expect(got.completedCount).toBe(3); // 5 receipts − 1 voided − 1 fully returned
+    expect(got.refunded).toBeGreaterThan(0);
+  });
+
+  it("breaks gross down into list price, discounts and tax", async () => {
+    const t = await storage.getReceiptTotals([fixture.storeId], { scope: null });
+    expect(t.listPrice).toBeGreaterThan(0);
+    expect(t.listPrice - t.discounts + t.tax).toBeCloseTo(t.gross, 2);
+    expect(t.pending).toBe(0); // nothing in this fixture awaits payment
+  });
+
+  it("leaves voided receipts out of gross and refunds", async () => {
+    const everything = await totals({ scope: null });
+    const voidedRows = await db.select().from(checkouts).where(eq(checkouts.isVoided, true));
+    const voidedCharged = voidedRows.filter((c) => c.storeId === fixture.storeId).reduce((n, c) => n + Number(c.totalCharged), 0);
+    const rawCharged = (await db.select().from(checkouts).where(eq(checkouts.storeId, fixture.storeId))).reduce((n, c) => n + Number(c.totalCharged), 0);
+    expect(voidedCharged).toBeGreaterThan(0);
+    expect(everything.gross).toBeCloseTo(rawCharged - voidedCharged, 2);
+  });
+
+  it("follows the staff scope, the search and the date window", async () => {
+    for (const opts of [
+      { scope: A() },
+      { scope: null, search: "alpha" },
+      { scope: null, search: "no-such-thing" },
+      { scope: null, startDate: middleDate },
+      { scope: null, endDate: middleDate },
+    ]) {
+      expect(await totals(opts)).toEqual(await oracleTotals(opts));
+    }
+  });
+
+  it("is zero for a viewer with no staff record", async () => {
+    expect(await totals({ scope: new Set() })).toEqual({ gross: 0, refunded: 0, completedCount: 0, receiptCount: 0 });
+  });
+});

@@ -7,6 +7,7 @@ import { auditLogger } from "../audit";
 import { getCheckoutMoneyDetails } from "../lib/checkoutAuditDetails";
 import { getClientIp, getUserStores, broadcastChange, getAuditContext } from './helpers';
 import { staffCreditDeductionService } from "../services/StaffCreditDeductionService";
+import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 
 export type RouteMiddlewares = {
   isAuthenticated: any;
@@ -14,6 +15,28 @@ export type RouteMiddlewares = {
   requireManagerOrOwner: any;
   checkStoreAccess: (storeId: string, req: Request, res: Response) => Promise<boolean>;
 };
+
+/**
+ * The date window a transactions request asks for, as UTC instants, or null when a bound isn't a valid date.
+ *
+ * A bare calendar day (yyyy-MM-dd) is read in the STORE's timezone, like the Profit & Loss does, so a sale at
+ * 11:30pm on the 31st lands on the 31st on both screens no matter which timezone the viewer's browser is in.
+ * A full ISO instant is taken as given (older callers, deep links). Across several stores the first store's
+ * timezone is used; stores of one business share a country in practice.
+ */
+export async function parseDateWindow(query: Request["query"], storeIds: string[]): Promise<{ startDate?: Date; endDate?: Date } | null> {
+  const day = /^\d{4}-\d{2}-\d{2}$/;
+  const tz = storeIds.length > 0 ? await getStoreTimezone(storeIds[0]) : "Africa/Lagos";
+  const bound = (raw: unknown, edge: "start" | "end"): Date | undefined | null => {
+    if (typeof raw !== "string" || raw === "") return undefined;
+    const d = day.test(raw) ? (edge === "start" ? toUtcStart(raw, tz) : toUtcEnd(raw, tz)) : new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const startDate = bound(query.startDate, "start");
+  const endDate = bound(query.endDate, "end");
+  if (startDate === null || endDate === null) return null;
+  return { startDate, endDate };
+}
 
 export function groupTransactions(txs: any[]): any[] {
   const groupedMap = new Map<string, any[]>();
@@ -30,7 +53,7 @@ export function groupTransactions(txs: any[]): any[] {
     // transaction list links to the original sale, not an addendum appended later.
     const firstTx = group.find((t: any) => !t.checkout?.isAddendum) ?? group[group.length - 1];
     let totalAmount = 0, totalTotalPrice = 0, totalTotalCharged = 0, totalQuantity = 0;
-    let totalReturnedQuantity = 0, totalRefundedAmount = 0, totalSubtotal = 0, totalDiscountAmount = 0, totalTaxRefunded = 0, totalLossAmount = 0;
+    let totalReturnedQuantity = 0, totalRefundedAmount = 0, totalSubtotal = 0, totalDiscountAmount = 0, totalTaxRefunded = 0, totalLossAmount = 0, totalTaxTotal = 0;
     for (const item of group) {
       totalAmount += Number(item.amount) || 0;
       totalTotalPrice += Number(item.checkout?.totalPrice) || 0;
@@ -42,6 +65,7 @@ export function groupTransactions(txs: any[]): any[] {
       totalDiscountAmount += Number(item.checkout?.discountAmount) || 0;
       totalTaxRefunded += Number(item.checkout?.taxRefunded) || 0;
       totalLossAmount += Number(item.checkout?.lossAmount) || 0;
+      totalTaxTotal += Number(item.checkout?.taxTotal) || 0;
     }
     const hasService = group.some((t: any) => t.inventory?.type === "service");
     const hasProduct = group.some((t: any) => t.inventory?.type === "product");
@@ -79,6 +103,7 @@ export function groupTransactions(txs: any[]): any[] {
         refundedAmount: totalRefundedAmount,
         taxRefunded: totalTaxRefunded,
         lossAmount: totalLossAmount,
+        taxTotal: totalTaxTotal,
         totalCharged: totalTotalCharged,
         basketItemCount: group.length,
       },
@@ -133,21 +158,21 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       // pages (client/src/lib/paginated.ts).
       const pageReq = parsePage(req.query);
 
-      // Parse optional server-side date filters
-      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
-      if ((startDate && Number.isNaN(startDate.getTime())) || (endDate && Number.isNaN(endDate.getTime()))) {
+      // Optional server-side date filters, read in the store's timezone (see parseDateWindow).
+      const userStores = storeId === "all" ? await getUserStores(req) : null;
+      const windowStores = userStores ? userStores.map(st => st.id) : [storeId];
+      const filters = await parseDateWindow(req.query, windowStores);
+      if (!filters) {
         return res.status(400).json({ error: "That date range isn't valid. Please check the dates and try again." });
       }
-      const filters = { startDate, endDate };
       const search = req.query.search as string | undefined;
       const maskContact = (await getMaskPolicy(req)).contact;
       // A masked viewer can't search receipts by phone number (it would reveal hidden numbers).
       if (maskContact && isPhoneLikeQuery(search)) return res.json(paginated([], 0, pageReq));
       const maskRows = <T,>(rows: T[]): T[] => (maskContact ? rows.map((r) => maskDocumentContacts(r as any)) : rows);
 
-      if (storeId === "all") {
-        const stores = await getUserStores(req);
+      if (userStores) {
+        const stores = userStores;
         if (stores.length === 0) return res.json(paginated([], 0, pageReq));
 
         // Non-owner/manager users only see their own checkouts (business setting).
@@ -163,6 +188,44 @@ export function registerTransactionRoutes(app: Express, { isAuthenticated, requi
       res.json(paginated(maskRows(data), total, pageReq));
     } catch (error) {
       res.status(500).json({ error: "We couldn't load your transactions. Please try again." });
+    }
+  });
+
+  // ─── GET totals over every receipt matching the list's date window, scope and search ─────────────────
+  // The list is paged, so a screen that wants "the whole range" cannot add up the page it holds. Registered
+  // before /api/transactions/:id so "summary" is not read as a transaction id.
+  app.get("/api/transactions/summary", isAuthenticated, async (req, res) => {
+    try {
+      const storeId = req.query.storeId as string;
+      if (!storeId) {
+        return res.status(400).json({ error: "Please select a store first." });
+      }
+      const search = (req.query.search as string | undefined) || undefined;
+      // Same rule as the list: a masked viewer can't search receipts by phone number.
+      if ((await getMaskPolicy(req)).contact && isPhoneLikeQuery(search)) {
+        return res.json({ gross: 0, refunded: 0, net: 0, completedCount: 0, receiptCount: 0, listPrice: 0, discounts: 0, tax: 0, pending: 0 });
+      }
+
+      let storeIds: string[];
+      if (storeId === "all") {
+        storeIds = (await getUserStores(req)).map(s => s.id);
+      } else {
+        if (!(await checkStoreAccess(storeId, req, res))) return;
+        storeIds = [storeId];
+      }
+      if (storeIds.length === 0) {
+        return res.json({ gross: 0, refunded: 0, net: 0, completedCount: 0, receiptCount: 0, listPrice: 0, discounts: 0, tax: 0, pending: 0 });
+      }
+
+      const window = await parseDateWindow(req.query, storeIds);
+      if (!window) {
+        return res.status(400).json({ error: "That date range isn't valid. Please check the dates and try again." });
+      }
+      const scope = await resolveTransactionScope((req as any).user, storeIds);
+      const totals = await storage.getReceiptTotals(storeIds, { ...window, scope, search });
+      res.json({ ...totals, net: totals.gross - totals.refunded });
+    } catch (error) {
+      res.status(500).json({ error: "We couldn't load your transaction totals. Please try again." });
     }
   });
 

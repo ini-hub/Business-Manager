@@ -12,11 +12,13 @@ import {
 import { Receipt, Calendar, User, Package, Coins, CreditCard, ChevronRight, ShoppingBag, Wallet, TrendingDown } from "lucide-react";
 import { ResolvePendingDialog } from "@/components/ResolvePendingDialog";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DataTable } from "@/components/data-table";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Link, useLocation, useSearch } from "wouter";
 import { useUrlState } from "@/hooks/use-url-state";
+import { fetchAllPages } from "@/lib/paginated";
 import { CustomerLink, EntityLink } from "@/components/oop-ui/EntityDisplayPresenter";
 import { appendReturnTo } from "@/lib/return-to";
 import { buildSlug } from "@/lib/slug";
@@ -42,11 +44,86 @@ import { SaleFiltersSheet, SaleSortSheet, saleSortButtonLabel } from "@/componen
 
 const PAGE_LIMIT = 50;
 
+type SaleRow = ReturnType<typeof toSaleRow>;
+
+interface RangeTotals {
+  gross: number;
+  refunded: number;
+  net: number;
+  completedCount: number;
+  listPrice: number;
+  discounts: number;
+  tax: number;
+  pending: number;
+}
+
+function toSaleRow(tx: TransactionWithRelations) {
+  return ({
+    ...tx,
+    status: tx.checkout?.isVoided
+      ? "Void"
+      : (tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity >= (tx.checkout.quantity ?? 1)
+        ? "Returned"
+        : (tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity > 0
+          ? "Partially Returned"
+          : (tx.checkout?.paymentStatus === "pending" ? "Pending" : "Paid")
+        )
+      ),
+    paymentMethod: tx.checkout?.paymentMethod || "cash",
+    staffName: tx.checkout?.staff?.name || "Unknown",
+    // Flatten frequently searched nested fields so DataTable can search them directly
+    receiptNumber: tx.checkout?.receiptNumber ?? "",
+    customerName: tx.customer?.name ?? "",
+    inventoryName: tx.inventory?.name ?? "",
+    amount: tx.amount ?? 0,
+    staffId: tx.checkout?.staff?.id ?? null,
+    inventoryType: tx.inventory?.type ?? null,
+    isStaffPurchase: !!(tx.customer as any)?.staffId,
+    lossAmount: tx.checkout?.isVoided ? 0 : Number(tx.checkout?.lossAmount ?? 0),
+    isReturned: !!(tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity > 0),
+    paymentAccountIds: (tx.paymentLegs ?? []).map((l) => l.paymentAccountId).filter((id): id is string => !!id),
+    paymentAccountLabels: Array.from(new Set((tx.paymentLegs ?? []).map((l) => l.accountLabel).filter(Boolean))).join(", "),
+  });
+}
+
+function rowMatchesSearch(row: SaleRow, term: string) {
+  return (
+    row.receiptNumber.toLowerCase().includes(term) ||
+    row.customerName.toLowerCase().includes(term) ||
+    row.inventoryName.toLowerCase().includes(term) ||
+    row.staffName.toLowerCase().includes(term)
+  );
+}
+
+// The server hands back one row per receipt (lines already merged), so these are receipt totals: voided
+// receipts count for nothing, and a receipt whose every item came back is not a completed sale. Besides the
+// headline it keeps what explains it: list price, the discounts and loyalty points taken off it, the tax put
+// on, and how much of the gross is still awaiting payment. Mirrors the server's getReceiptTotals.
+function summarizeSaleRows(rows: SaleRow[]): RangeTotals {
+  let gross = 0, refunded = 0, completedCount = 0, listPrice = 0, tax = 0, pending = 0;
+  for (const row of rows) {
+    const co = row.checkout;
+    if (co?.isVoided) continue;
+    const charged = Number(co?.totalCharged ?? co?.totalPrice ?? 0) || 0;
+    const lineTax = Number(co?.taxTotal ?? 0) || 0;
+    gross += charged;
+    tax += lineTax;
+    listPrice += Number(co?.subtotal) || charged - lineTax;
+    refunded += Number(co?.refundedAmount ?? 0) || 0;
+    if (co?.paymentStatus === "pending") pending += charged;
+    if (!((co?.returnedQuantity ?? 0) >= (co?.quantity ?? 1))) completedCount++;
+  }
+  const discounts = Math.max(0, Math.round((listPrice - (gross - tax)) * 100) / 100);
+  return { gross, refunded, net: gross - refunded, completedCount, listPrice, discounts, tax, pending };
+}
+
 export default function Transactions() {
   const { currentStore, scopedStores: stores, business } = useStore();
   const figuresMasked = !!(business as any)?.viewerMask?.figures;
   const [location, setLocation] = useLocation();
   const search = useSearch();
+
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   // Resolve Pending inline dialog state
   const [resolveTx, setResolveTx] = useState<TransactionWithRelations | null>(null);
@@ -69,8 +146,9 @@ export default function Transactions() {
   // correct); with none set, all transactions load, paginated.
   const dateParams = useMemo(() => {
     const p = new URLSearchParams();
-    if (saleFilters.dateFrom) p.set("startDate", new Date(`${saleFilters.dateFrom}T00:00:00`).toISOString());
-    if (saleFilters.dateTo) p.set("endDate", new Date(`${saleFilters.dateTo}T23:59:59.999`).toISOString());
+    // Plain calendar days: the server reads them in the store's timezone, not this browser's.
+    if (saleFilters.dateFrom) p.set("startDate", saleFilters.dateFrom);
+    if (saleFilters.dateTo) p.set("endDate", saleFilters.dateTo);
     return p.toString();
   }, [saleFilters.dateFrom, saleFilters.dateTo]);
 
@@ -384,34 +462,7 @@ export default function Transactions() {
     lossAmount: tx.checkout?.isVoided ? "" : Number(tx.checkout?.lossAmount ?? 0) || "",
   }));
 
-  const tableData = useMemo(() => {
-    return filteredTransactions.map((tx) => ({
-      ...tx,
-      status: tx.checkout?.isVoided
-        ? "Void"
-        : (tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity >= (tx.checkout.quantity ?? 1)
-          ? "Returned"
-          : (tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity > 0
-            ? "Partially Returned"
-            : (tx.checkout?.paymentStatus === "pending" ? "Pending" : "Paid")
-          )
-        ),
-      paymentMethod: tx.checkout?.paymentMethod || "cash",
-      staffName: tx.checkout?.staff?.name || "Unknown",
-      // Flatten frequently searched nested fields so DataTable can search them directly
-      receiptNumber: tx.checkout?.receiptNumber ?? "",
-      customerName: tx.customer?.name ?? "",
-      inventoryName: tx.inventory?.name ?? "",
-      amount: tx.amount ?? 0,
-      staffId: tx.checkout?.staff?.id ?? null,
-      inventoryType: tx.inventory?.type ?? null,
-      isStaffPurchase: !!(tx.customer as any)?.staffId,
-      lossAmount: tx.checkout?.isVoided ? 0 : Number(tx.checkout?.lossAmount ?? 0),
-      isReturned: !!(tx.checkout?.returnedQuantity && tx.checkout.returnedQuantity > 0),
-      paymentAccountIds: (tx.paymentLegs ?? []).map((l) => l.paymentAccountId).filter((id): id is string => !!id),
-      paymentAccountLabels: Array.from(new Set((tx.paymentLegs ?? []).map((l) => l.accountLabel).filter(Boolean))).join(", "),
-    }));
-  }, [filteredTransactions]);
+  const tableData = useMemo(() => filteredTransactions.map(toSaleRow), [filteredTransactions]);
 
   type TxRow = (typeof tableData)[number];
 
@@ -439,18 +490,49 @@ export default function Transactions() {
   const saleSearchedRows = useMemo(() => {
     const term = saleSearchTerm.trim().toLowerCase();
     if (!term) return tableData;
-    return tableData.filter((row) =>
-      row.receiptNumber.toLowerCase().includes(term) ||
-      row.customerName.toLowerCase().includes(term) ||
-      row.inventoryName.toLowerCase().includes(term) ||
-      row.staffName.toLowerCase().includes(term)
-    );
+    return tableData.filter((row) => rowMatchesSearch(row, term));
   }, [tableData, saleSearchTerm]);
 
   const saleFilteredRows = useMemo(
     () => saleSearchedRows.filter((row) => saleMatchesFilters(row, saleFilters)),
     [saleSearchedRows, saleFilters]
   );
+
+  // Tile totals cover the whole date range, not just the 50 receipts on screen. With no search or other
+  // filter active the server adds the range up in one statement; as soon as one is, every page of the range
+  // is loaded and put through the same search/filter pipeline as the table, so the tiles always agree with
+  // what the filters describe. (The date range is the only filter the server list itself applies.)
+  const rangeFilterActive =
+    saleSearchTerm.trim() !== "" ||
+    countActiveSaleFilters({ ...saleFilters, dateFrom: null, dateTo: null }) > 0;
+  const rangeScopeReady = currentStore?.id === "all" ? stores.length > 0 : !!currentStore?.id;
+
+  const { data: serverTotals, isLoading: isLoadingServerTotals } = useQuery<RangeTotals>({
+    queryKey: ["/api/transactions/summary", currentStore?.id, stores.map(s => s.id).join(","), dateParams],
+    queryFn: async () => {
+      const res = await fetch(`/api/transactions/summary?storeId=${currentStore?.id}${dateParams ? `&${dateParams}` : ""}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch transaction totals");
+      return res.json();
+    },
+    enabled: rangeScopeReady && !rangeFilterActive,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const { data: rangeTransactions, isLoading: isLoadingRange } = useQuery<TransactionWithRelations[]>({
+    queryKey: ["/api/transactions", "range", currentStore?.id, stores.map(s => s.id).join(","), dateParams],
+    queryFn: () => fetchAllPages<TransactionWithRelations>(`/api/transactions?storeId=${currentStore?.id}${dateParams ? `&${dateParams}` : ""}`),
+    enabled: rangeScopeReady && rangeFilterActive,
+  });
+
+  const rangeTotals = useMemo(() => {
+    if (!rangeFilterActive) return serverTotals ?? null;
+    if (!rangeTransactions) return null;
+    const term = saleSearchTerm.trim().toLowerCase();
+    const rows = rangeTransactions.map(toSaleRow);
+    const searched = term ? rows.filter((row) => rowMatchesSearch(row, term)) : rows;
+    return summarizeSaleRows(searched.filter((row) => saleMatchesFilters(row, saleFilters)));
+  }, [rangeFilterActive, serverTotals, rangeTransactions, saleSearchTerm, saleFilters]);
+  const rangeLoading = isLoading || (rangeFilterActive ? isLoadingRange : isLoadingServerTotals);
 
   // Sort is consolidated into the same Filters sheet (see sale-filter-sheet.tsx) rather
   // than a separate control. Applied after filtering, before both the desktop table and
@@ -613,29 +695,34 @@ export default function Transactions() {
           <MetricRow
             metrics={[
               {
-                title: "Net Sales",
-                value: figuresMasked ? "••••" : formatCurrency(actualRevenueNet),
-                compactValue: figuresMasked ? "••••" : formatCompact(actualRevenueNet),
-                description:
-                  totalRefunded > 0
-                    ? `${formatCompact(totalAmount)} gross − ${formatCompact(totalRefunded)} returned`
-                    : `${formatCompact(totalAmount)} gross · no returns`,
+                title: "Transaction Value",
+                value: figuresMasked ? "••••" : formatCurrency(rangeTotals?.net ?? 0),
+                compactValue: figuresMasked ? "••••" : formatCompact(rangeTotals?.net ?? 0),
+                description: figuresMasked
+                  ? undefined
+                  : [
+                      (rangeTotals?.refunded ?? 0) > 0
+                        ? `Gross: ${formatCurrency(rangeTotals?.gross ?? 0)} (Refunded: ${formatCurrency(rangeTotals?.refunded ?? 0)})`
+                        : `Gross: ${formatCurrency(rangeTotals?.gross ?? 0)} · no returns`,
+                      (rangeTotals?.pending ?? 0) > 0 ? `${formatCurrency(rangeTotals?.pending ?? 0)} pending` : null,
+                    ].filter(Boolean).join(" · "),
+                onClick: figuresMasked || !rangeTotals ? undefined : () => setBreakdownOpen(true),
                 icon: <Coins className="h-4 w-4" />,
-                isLoading,
+                isLoading: rangeLoading,
               },
               {
                 title: "Completed Sales",
-                value: figuresMasked ? "••••" : nonVoidedCount,
+                value: figuresMasked ? "••••" : (rangeTotals?.completedCount ?? 0),
                 description: "Excludes voided and fully returned",
                 icon: <Receipt className="h-4 w-4" />,
-                isLoading,
+                isLoading: rangeLoading,
               },
               {
                 title: "Avg. Sale (Net)",
-                value: figuresMasked ? "••••" : formatCurrency(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0),
-                compactValue: figuresMasked ? "••••" : formatCompact(nonVoidedCount > 0 ? actualRevenueNet / nonVoidedCount : 0),
+                value: figuresMasked ? "••••" : formatCurrency(rangeTotals && rangeTotals.completedCount > 0 ? rangeTotals.net / rangeTotals.completedCount : 0),
+                compactValue: figuresMasked ? "••••" : formatCompact(rangeTotals && rangeTotals.completedCount > 0 ? rangeTotals.net / rangeTotals.completedCount : 0),
                 icon: <Coins className="h-4 w-4" />,
-                isLoading,
+                isLoading: rangeLoading,
               },
             ]}
           />
@@ -792,6 +879,40 @@ export default function Transactions() {
               )}
           </div>
       </div>
+
+      {/* Transaction Value breakdown — opened from the first tile */}
+      {rangeTotals && (
+        <Dialog open={breakdownOpen} onOpenChange={setBreakdownOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>How Transaction Value is made up</DialogTitle>
+              <DialogDescription>
+                {rangeFilterActive ? "Every sale matching your search and filters" : "Every sale in the selected date range"}, voided sales left out.
+              </DialogDescription>
+            </DialogHeader>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between"><dt className="text-muted-foreground">Price of items sold</dt><dd className="font-mono">{formatCurrency(rangeTotals.listPrice)}</dd></div>
+              {rangeTotals.discounts > 0 && (
+                <div className="flex justify-between"><dt className="text-muted-foreground">Discounts &amp; points redeemed</dt><dd className="font-mono text-red-600">− {formatCurrency(rangeTotals.discounts)}</dd></div>
+              )}
+              {rangeTotals.tax > 0 && (
+                <div className="flex justify-between"><dt className="text-muted-foreground">Tax</dt><dd className="font-mono">+ {formatCurrency(rangeTotals.tax)}</dd></div>
+              )}
+              <div className="flex justify-between border-t pt-2"><dt className="font-medium">Gross (charged)</dt><dd className="font-mono font-medium">{formatCurrency(rangeTotals.gross)}</dd></div>
+              <div className="flex justify-between"><dt className="text-muted-foreground">Returned / refunded</dt><dd className="font-mono text-red-600">− {formatCurrency(rangeTotals.refunded)}</dd></div>
+              <div className="flex justify-between border-t pt-2"><dt className="font-semibold">Transaction Value</dt><dd className="font-mono font-semibold">{formatCurrency(rangeTotals.net)}</dd></div>
+            </dl>
+            {rangeTotals.pending > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {formatCurrency(rangeTotals.pending)} of this is from sales whose payment is still pending. It is counted here because the sale happened, but not yet collected.
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Profit &amp; Loss counts completed payments only and uses prices before discounts, so its Actual Revenue (Net) can differ from this figure.
+            </p>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Resolve Pending Payment — inline from transactions list */}
       {resolveTx && resolveTx.checkout?.id && resolveTx.customer?.id && (
