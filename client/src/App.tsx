@@ -548,13 +548,14 @@ function AuthenticatedLayout() {
       <IdleLogoutGuard />
       <SidebarProvider style={sidebarStyle as React.CSSProperties}>
         <div className="flex flex-col min-h-screen w-full">
+          <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 z-40 h-[env(safe-area-inset-top)] bg-background" />
           <div className="flex flex-1 w-full min-h-0">
           <AppSidebar />
-          <SidebarInset className="flex flex-col flex-1 min-w-0">
+          <SidebarInset className="flex flex-col flex-1 min-w-0 pt-[env(safe-area-inset-top)]">
             {(user as any)?.impersonating && <ImpersonationBanner />}
             <LegalConsentBanner />
             <AnnouncementBanner />
-            <header className="sticky top-0 z-50 flex h-16 items-center justify-between gap-4 border-b bg-background px-4 sm:px-8">
+            <header className="sticky top-[env(safe-area-inset-top)] z-50 flex h-16 items-center justify-between gap-4 border-b bg-background px-4 sm:px-8">
               <div className="flex items-center gap-2">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />
                 <Separator orientation="vertical" className="hidden lg:block h-6" />
