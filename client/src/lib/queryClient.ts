@@ -202,7 +202,7 @@ async function takeBootstrapSection(url: string): Promise<{ data: unknown } | nu
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
-const getQueryFn: <T>(options: {
+export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
