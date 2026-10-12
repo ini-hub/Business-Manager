@@ -23,6 +23,7 @@ import { MetricGrid } from "@/components/metric-grid";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PolymorphicTabsList, TabItem } from "@/components/oop-ui/PolymorphicTabsList";
 import { StaffGamificationCard } from "@/components/gamification/StaffGamificationCard";
+import { StaffStoresCard } from "@/components/staff-stores-card";
 import { PersonalTab } from "@/components/hr/PersonalTab";
 import { JobTab } from "@/components/hr/JobTab";
 import { TimeOffTab } from "@/components/hr/TimeOffTab";
@@ -459,6 +460,7 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
       </MetricGrid>
 
       {storeId && <StaffGamificationCard storeId={storeId} staffId={staff.id} />}
+      <StaffStoresCard staffId={staff.id} />
       </>)}
 
       {isLogs && (

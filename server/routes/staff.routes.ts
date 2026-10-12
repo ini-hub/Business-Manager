@@ -15,7 +15,7 @@ import { objectStorage } from "../lib/objectStorage";
 import {
   insertStaffSchema, attachContractSchema,
   ALLOWED_CONTRACT_MIME_TYPES,
-  MAX_CONTRACT_FILE_SIZE_BYTES, staff
+  MAX_CONTRACT_FILE_SIZE_BYTES, staff, staffStoreAssignments, stores
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
@@ -124,8 +124,9 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       const survivor = await storage.getStaff(body.data.survivorId);
       if (!survivor) return res.status(404).json({ error: "Staff member not found." });
 
+      // A refused merge is a normal answer, not an HTTP error: the report says what blocked it.
       const report = await staffMergeService.merge({ ...body.data, businessId });
-      if (!report.ok) return res.status(409).json(report);
+      if (!report.ok) return res.json(report);
 
       if (!report.dryRun) {
         const ctx = await getAuditContext(req, { storeId: survivor.storeId });
@@ -140,6 +141,39 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
     } catch (error) {
       console.error("Staff merge error:", error);
       res.status(500).json({ error: "We couldn't merge these staff records. Nothing was changed." });
+    }
+  });
+
+  // Where one person works: their home store plus any other store they are assigned to.
+  app.get("/api/staff/:id/assignments", requirePermission("/staffs"), async (req, res) => {
+    try {
+      const staffMember = await storage.getStaff(req.params.id);
+      if (!staffMember) return res.status(404).json({ error: "Staff member not found." });
+      if (!await verifyRecordStoreAccess(req, staffMember.storeId)) {
+        return res.status(403).json({ error: "You don't have access to this staff member." });
+      }
+      const rows = await db.select({
+        storeId: staffStoreAssignments.storeId,
+        storeName: stores.name,
+        staffNumber: staffStoreAssignments.staffNumber,
+        role: staffStoreAssignments.role,
+        isArchived: staffStoreAssignments.isArchived,
+      })
+        .from(staffStoreAssignments)
+        .innerJoin(stores, eq(stores.id, staffStoreAssignments.storeId))
+        .where(eq(staffStoreAssignments.staffId, staffMember.id));
+      // Only stores the viewer may see: a manager of one branch does not learn the names of the others.
+      const visible = [];
+      for (const r of rows) {
+        if (r.storeId === staffMember.storeId || await verifyStoreAccess(req, r.storeId)) {
+          visible.push({ ...r, isHome: r.storeId === staffMember.storeId });
+        }
+      }
+      visible.sort((a, b) => Number(b.isHome) - Number(a.isHome) || a.storeName.localeCompare(b.storeName));
+      res.json(visible);
+    } catch (error) {
+      console.error("Staff assignments error:", error);
+      res.status(500).json({ error: "We couldn't load this staff member's stores. Please try again." });
     }
   });
 

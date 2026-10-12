@@ -237,7 +237,7 @@ export class StaffMergeService {
   /** People who appear more than once in a business: same login, several staff rows. */
   async findCandidates(businessId: string) {
     const r = await db.execute(sql`
-      SELECT s.id, s.user_id, s.store_id, st.name AS store_name, s.name, s.email, s.staff_number,
+      SELECT s.id, s.user_id, s.store_id, st.name AS store_name, st.currency AS currency, s.name, s.email, s.staff_number,
              s.pay_per_month, s.is_archived, s.created_at
       FROM staff s JOIN stores st ON st.id = s.store_id
       WHERE st.business_id = ${businessId} AND s.user_id IN (
@@ -249,7 +249,7 @@ export class StaffMergeService {
     for (const row of r.rows as Array<Record<string, any>>) {
       const list = groups.get(row.user_id) ?? [];
       list.push({
-        id: row.id, storeId: row.store_id, storeName: row.store_name, name: row.name, email: row.email,
+        id: row.id, storeId: row.store_id, storeName: row.store_name, currency: row.currency, name: row.name, email: row.email,
         staffNumber: row.staff_number, payPerMonth: Number(row.pay_per_month), isArchived: row.is_archived,
         createdAt: row.created_at,
       });

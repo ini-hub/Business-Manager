@@ -7,6 +7,7 @@ import { STALE_TIMES, type ApiError } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { Plus, UserPlus, UserCheck, UserX, FileSignature, Edit, Trash2, Phone, RotateCcw, Archive, ArrowRightLeft, Users, UserSquare2 } from "lucide-react";
 import { SpeedDialFAB } from "@/components/speed-dial-fab";
+import { StaffMergeDialog, useStaffMergeCandidates } from "@/components/staff-merge-dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -135,6 +136,7 @@ export default function StaffPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isPermanentDeleteOpen, setIsPermanentDeleteOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
+  const [isMergeOpen, setIsMergeOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<StaffRow | null>(null);
   const [isResendInviteOpen, setIsResendInviteOpen] = useState(false);
   const [transferTargetStoreId, setTransferTargetStoreId] = useState<string>("");
@@ -145,6 +147,10 @@ export default function StaffPage() {
   const [archivedSearchTerm, setArchivedSearchTerm] = useState("");
   const [archivedFilters, setArchivedFilters] = useState<StaffFilterState>(EMPTY_STAFF_FILTERS);
   const [archivedSort, setArchivedSort] = useState<StaffSortState | null>(null);
+
+  // Owner only: people who were set up once per store and can be folded into one record.
+  const mergeCandidates = useStaffMergeCandidates(isOwner);
+  const mergeGroups = mergeCandidates.data?.groups ?? [];
 
   const { data: staffList = [], isLoading } = useQuery<StaffRow[]>({
     queryKey: ["/api/staff", currentStore?.id, stores.map(s => s.id).join(",")],
@@ -654,6 +660,17 @@ export default function StaffPage() {
                 showImportOption={userRole !== "staff"}
               />
             </div>
+            {isOwner && mergeGroups.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => setIsMergeOpen(true)}
+                aria-label="Merge duplicate staff"
+                data-testid="button-merge-staff"
+              >
+                <Users className="h-4 w-4 lg:mr-2" />
+                <span className="hidden lg:inline">Merge duplicates ({mergeGroups.length})</span>
+              </Button>
+            )}
             {isOwner && (
               <AddButton label="Add Staff" limit="staff_seats" onClick={() => setLocation("/staffs/new")} data-testid="button-add-staff" />
             )}
@@ -857,6 +874,15 @@ export default function StaffPage() {
         onConfirm={() => resendInviteMutation.mutate(selectedStaff!.id)}
         isLoading={resendInviteMutation.isPending}
       />
+
+      {isOwner && (
+        <StaffMergeDialog
+          open={isMergeOpen}
+          onOpenChange={setIsMergeOpen}
+          groups={mergeGroups}
+          isLoading={mergeCandidates.isLoading}
+        />
+      )}
 
       <Dialog open={isTransferOpen} onOpenChange={setIsTransferOpen}>
         <DialogContent>
