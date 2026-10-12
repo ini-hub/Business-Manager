@@ -2,7 +2,7 @@ import { sql, relations } from "drizzle-orm";
 import { pgTable, text, varchar, boolean, integer, timestamp, unique, index, jsonb, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { trimmedString, optionalTrimmedString } from "./_helpers";
+import { trimmedString, optionalTrimmedString, BUSINESS_STRUCTURES } from "./_helpers";
 import { stores } from "./stores";
 import { organisationMembers, users } from "./auth";
 
@@ -49,6 +49,9 @@ export const organisations = pgTable("organisations", {
   defaultWalkInCustomerId: varchar("default_walk_in_customer_id"), // cached id of the auto-provisioned trial walk-in customer
   defaultTrialStaffId: varchar("default_trial_staff_id"), // cached id of the auto-provisioned trial default staff record
   partnerCode: text("partner_code"), // shareable code other businesses use to request a partnership; unique where set (migration 0113)
+  // 'solo' | 'with_staff' | 'multi_store' - null for businesses that never answered (migration 0133).
+  // Only used to recommend a pricing bundle at checkout; it gates nothing.
+  businessStructure: text("business_structure"),
 });
 
 export const organisationsRelations = relations(organisations, ({ many }) => ({
@@ -74,6 +77,7 @@ export const insertOrganisationSchema = createInsertSchema(organisations).omit({
   phone: z.string().trim().refine(v => !v || v.replace(/\D/g, "").length >= 7, "Enter a valid phone number.").optional().or(z.literal("")),
   phoneCountryCode: z.string().default("+234"),
   businessUrl: z.string().optional(),
+  businessStructure: z.enum(BUSINESS_STRUCTURES).nullable().optional(),
   // Owner/manager are never masked, so they are not valid role keys here.
   maskContactRoles: z.array(z.string().trim().toLowerCase().min(1)).refine((r) => !r.some((k) => k === "owner" || k === "manager"), "Owner and manager can't be masked.").optional(),
   maskFiguresRoles: z.array(z.string().trim().toLowerCase().min(1)).refine((r) => !r.some((k) => k === "owner" || k === "manager"), "Owner and manager can't be masked.").optional(),

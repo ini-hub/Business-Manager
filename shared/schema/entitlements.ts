@@ -204,6 +204,12 @@ export const pricingBundles = pgTable("pricing_bundles", {
   // so every write is validated in server/lib/pricing.ts instead.
   featureKeys: jsonb("feature_keys").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   discountPct: numeric("discount_pct", { precision: 5, scale: 2, mode: "number" }).notNull().default(sql`0`),
+  // Optional admin override (migration 0133): while every member is held, the members cost this much
+  // per cycle instead of list minus discountPct. Null = use discountPct for that cycle.
+  fixedPriceMonthly: numeric("fixed_price_monthly", { precision: 12, scale: 2, mode: "number" }),
+  fixedPriceAnnual: numeric("fixed_price_annual", { precision: 12, scale: 2, mode: "number" }),
+  // The structure this bundle is recommended for ('solo' | 'with_staff' | 'multi_store'); at most one active per structure.
+  businessStructure: text("business_structure"),
   // Optional hand-written landing bullets; empty means derive them from the members.
   bullets: jsonb("bullets").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   featured: boolean("featured").notNull().default(false),

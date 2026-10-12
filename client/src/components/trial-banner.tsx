@@ -2,6 +2,7 @@ import { Link } from "wouter";
 import { isOrgTrialing, trialDaysRemaining } from "@/lib/trial";
 import type { Business } from "@shared/schema";
 import { useEntitlements } from "@/hooks/useEntitlements";
+import { usePublicPricing } from "@/lib/pricing";
 
 /** True once a "trialing" org's window has passed with nothing purchased - not locked (see lib/trial.ts's isOrgLocked), just past the countdown. */
 function isTrialJustExpired(business: Business | null | undefined): boolean {
@@ -18,6 +19,11 @@ function isTrialJustExpired(business: Business | null | undefined): boolean {
  */
 export function TrialBanner({ business }: { business: Business | null | undefined }) {
   const { lifecycle } = useEntitlements();
+  // The bundle recommended for this business's structure, so the countdown can say what they would be subscribing to.
+  const { data: pricing } = usePublicPricing();
+  const recommended = business?.businessStructure
+    ? pricing?.bundles.find((b) => b.businessStructure === business.businessStructure)
+    : undefined;
 
   // Grace: full access still, with a countdown to the soft lock (free tier; nothing is deleted).
   if (lifecycle?.state === "grace" && lifecycle.graceEndsAt) {
@@ -48,10 +54,11 @@ export function TrialBanner({ business }: { business: Business | null | undefine
     const daysLeft = trialDaysRemaining(business);
     const isUrgent = daysLeft <= 3;
 
+    const cta = recommended ? `Subscribe to ${recommended.name}` : "Subscribe Now";
     const label =
       daysLeft === 0
-        ? "Trial ends today · Subscribe Now"
-        : `${daysLeft} ${daysLeft === 1 ? "day" : "days"} left in your trial · Subscribe Now`;
+        ? `Trial ends today · ${cta}`
+        : `${daysLeft} ${daysLeft === 1 ? "day" : "days"} left in your trial · ${cta}`;
 
     return (
       <Link

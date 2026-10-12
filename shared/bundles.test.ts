@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { priceSelection, priceIncrement, validateBundleSelection, deriveBullets, slugifyBundleKey, type CatalogEntry } from "./bundles";
+import { priceSelection, priceIncrement, validateBundleSelection, deriveBullets, slugifyBundleKey, bundleForCycle, type CatalogEntry } from "./bundles";
 
 const entry = (key: string, over: Partial<CatalogEntry> = {}): CatalogEntry => ({ key, name: key.toUpperCase(), isActive: true, tierType: "paid_flat", dependsOn: [], ...over });
 
@@ -107,5 +107,53 @@ describe("priceIncrement", () => {
 
   it("never goes negative", () => {
     expect(priceIncrement(["a", "b", "c"], [], price, [bundle]).total).toBe(0);
+  });
+});
+
+describe("fixed bundle price (admin override)", () => {
+  const price: Record<string, number> = { a: 1000, b: 2000, c: 3000, x: 500 };
+  const priceOf = (k: string) => price[k] ?? 0;
+  const solo = { key: "solo", name: "Solo", featureKeys: ["a", "b"], discountPct: 10, fixedPrice: 2000 };
+
+  it("charges the fixed price for the members, extras at list", () => {
+    const r = priceSelection(["a", "b", "x"], priceOf, [solo]);
+    expect(r.total).toBe(2000 + 500);
+    expect(r.discount).toBe(1000);
+    expect(r.bundleKey).toBe("solo");
+  });
+
+  it("applies with a 0% discount - the fixed price alone is enough", () => {
+    const r = priceSelection(["a", "b"], priceOf, [{ ...solo, discountPct: 0 }]);
+    expect(r.total).toBe(2000);
+  });
+
+  it("never charges above list", () => {
+    const r = priceSelection(["a", "b"], priceOf, [{ ...solo, fixedPrice: 9999 }]);
+    expect(r.total).toBe(3000);
+    expect(r.discount).toBe(0);
+  });
+
+  it("falls back to the percentage when no fixed price is set", () => {
+    const r = priceSelection(["a", "b"], priceOf, [{ ...solo, fixedPrice: null }]);
+    expect(r.total).toBe(2700);
+  });
+
+  it("does not apply until every member is held", () => {
+    expect(priceSelection(["a"], priceOf, [solo]).total).toBe(1000);
+  });
+
+  it("completing the bundle charges the difference to the fixed price", () => {
+    const r = priceIncrement(["a"], ["b"], priceOf, [solo]);
+    expect(r.total).toBe(1000);
+  });
+
+  it("allows a free (0) fixed price", () => {
+    expect(priceSelection(["a", "b"], priceOf, [{ ...solo, fixedPrice: 0 }]).total).toBe(0);
+  });
+
+  it("bundleForCycle picks the price for the cycle", () => {
+    const pub = { key: "solo", name: "Solo", featureKeys: ["a", "b"], discountPct: 0, fixedPriceMonthly: 2000, fixedPriceAnnual: null, businessStructure: "solo" };
+    expect(bundleForCycle(pub, "monthly").fixedPrice).toBe(2000);
+    expect(bundleForCycle(pub, "annual").fixedPrice).toBeNull();
   });
 });

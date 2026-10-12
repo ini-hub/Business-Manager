@@ -7,7 +7,7 @@ import {
   REASSURANCES, ROTATE_MS, SCENES, SIGNUP_PATH, STAGES, STEPS, SWITCH_CARDS, TESTIMONIALS,
   type Scene, type Testimonial, type Tone,
 } from "./landing-data";
-import { priceSelection, type PublicPricing } from "@shared/bundles";
+import { bundleForCycle, priceSelection, type PublicPricing } from "@shared/bundles";
 import { CATEGORY_LABELS, formatMoney, savePlanChoice, usePublicPricing } from "@/lib/pricing";
 import "./landing.css";
 
@@ -427,7 +427,7 @@ function CustomPlan({ pricing, onStart }: { pricing: PublicPricing; onStart: () 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const featureByKey = new Map(pricing.features.map((f) => [f.key, f]));
   const price = (k: string) => featureByKey.get(k)?.priceMonthly ?? 0;
-  const result = priceSelection(selected, price, pricing.bundles);
+  const result = priceSelection(selected, price, pricing.bundles.map((b) => bundleForCycle(b, "monthly")));
   const winner = pricing.bundles.find((b) => b.key === result.bundleKey);
 
   const toggle = (key: string) => {

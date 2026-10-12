@@ -2,7 +2,9 @@
  * Plan bundles (admin-managed, table pricing_bundles): a convenience grouping
  * of catalog features, NOT a separate product. A bundle owns no price of its own and grants nothing itself - the
  * feature catalog stays the only thing sold and entitled. A bundle is just
- * "this set of features, discounted when you hold all of it".
+ * "this set of features, discounted when you hold all of it" - either a
+ * percentage off, or (admin override, while pricing is still being tuned) a
+ * fixed price for the whole set per billing cycle.
  *
  * Because the discount is derived from the features actually held, adding or
  * removing a feature at checkout needs no special casing: drop one member and
@@ -18,6 +20,14 @@ export interface PricingBundle {
   featureKeys: readonly string[];
   /** Percent off the sum of the members' catalog prices. */
   discountPct: number;
+  /**
+   * Admin override, already resolved for the billing cycle being priced: while
+   * every member is held the members cost exactly this, instead of list minus
+   * discountPct. Null/absent = use discountPct. Never charges above list.
+   */
+  fixedPrice?: number | null;
+  /** The business structure this bundle is recommended for, if any. Not used for pricing. */
+  businessStructure?: string | null;
 }
 
 export interface SelectionPrice {
@@ -46,10 +56,14 @@ export function priceSelection(
 
   let best: { key: string; discount: number } | null = null;
   for (const b of bundles) {
-    if (b.discountPct <= 0 || b.featureKeys.length === 0) continue;
+    if (b.featureKeys.length === 0) continue;
+    const hasFixed = b.fixedPrice != null && b.fixedPrice >= 0;
+    if (!hasFixed && b.discountPct <= 0) continue;
     if (!b.featureKeys.every((k) => set.has(k))) continue;
     const memberTotal = b.featureKeys.reduce((sum, k) => sum + priceOf(k), 0);
-    const discount = round((memberTotal * b.discountPct) / 100);
+    const discount = hasFixed
+      ? Math.max(0, round(memberTotal - (b.fixedPrice as number)))
+      : round((memberTotal * b.discountPct) / 100);
     if (!best || discount > best.discount) best = { key: b.key, discount };
   }
 
@@ -76,6 +90,21 @@ export function priceIncrement(
   const subtotal = addedSet.reduce((sum, k) => sum + priceOf(k), 0);
   const total = Math.max(0, after.total - before.total);
   return { subtotal, discount: Math.max(0, subtotal - total), total, bundleKey: after.bundleKey };
+}
+
+/**
+ * A public bundle as priceSelection() wants it for one billing cycle. Clients
+ * must price through this so they apply the same fixed price the server does.
+ */
+export function bundleForCycle(
+  b: Pick<PublicPricing["bundles"][number], "key" | "name" | "featureKeys" | "discountPct" | "fixedPriceMonthly" | "fixedPriceAnnual" | "businessStructure">,
+  cycle: "monthly" | "annual",
+): PricingBundle {
+  return {
+    key: b.key, name: b.name, featureKeys: b.featureKeys, discountPct: b.discountPct,
+    fixedPrice: cycle === "annual" ? b.fixedPriceAnnual : b.fixedPriceMonthly,
+    businessStructure: b.businessStructure,
+  };
 }
 
 export const PURCHASABLE_TIERS: readonly string[] = ["paid_flat", "paid_metered_limit", "bundle_parent"];
@@ -149,6 +178,11 @@ export interface PublicPricing {
   }[];
   bundles: {
     key: string; name: string; tagline: string; featured: boolean; discountPct: number;
+    /** The structure ('solo' | 'with_staff' | 'multi_store') this bundle is recommended for, if any. */
+    businessStructure: string | null;
+    /** Admin fixed price per cycle (null = the % discount applies). Clients price with bundleForCycle(). */
+    fixedPriceMonthly: number | null;
+    fixedPriceAnnual: number | null;
     /** Hand-written, or derived from the members when none were written. */
     bullets: string[];
     /** Landing shows only these; checkout offers every active bundle. */

@@ -28,6 +28,7 @@ import crypto from "crypto";
 import { db } from "./db";
 import { eq, and, ne, like, desc, sql, gte, lte, count, inArray, or, isNull } from "drizzle-orm";
 import { customRoles, businessDeletionFeedback, authSessions } from "@shared/schema";
+import { BUSINESS_STRUCTURES } from "@shared/schema/_helpers";
 import { PERMISSIONS_BY_MODULE, SYSTEM_ROLE_DEFAULTS, expandPermissions, normalizePermissions } from "@shared/permissions";
 import { invalidateRoleCache } from "./lib/roles";
 import {
@@ -3311,11 +3312,25 @@ adminRouter.delete("/role-templates/:id", isAdminAuthenticated, requireAdminRole
 // all of it (shared/bundles.ts). It owns no entitlement, so creating, editing or
 // deleting one never changes anyone's access - only the price a full set costs,
 // at the next checkout or renewal, and what the landing page shows.
+async function structureTakenBy(structure: string | null, isActive: boolean, exceptId?: string): Promise<string | null> {
+  if (!structure || !isActive) return null;
+  const rows = await db.select().from(pricingBundles)
+    .where(and(eq(pricingBundles.businessStructure, structure), eq(pricingBundles.isActive, true)));
+  const other = rows.find((r) => r.id !== exceptId);
+  return other ? other.name : null;
+}
+
 const bundleInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required.").max(60),
   tagline: z.string().trim().max(120).default(""),
   featureKeys: z.array(z.string()).max(100),
   discountPct: z.coerce.number().min(0, "Discount must be 0-90.").max(90, "Discount must be 0-90."),
+  // Optional fixed price per cycle that replaces list-minus-discount while all members are held
+  // (blank/null = use discountPct). Lets pricing be set per bundle while per-feature prices are still being tuned.
+  fixedPriceMonthly: z.preprocess((v) => (v === "" || v == null ? null : v), z.coerce.number().min(0, "Fixed price can't be negative.").nullable()).default(null),
+  fixedPriceAnnual: z.preprocess((v) => (v === "" || v == null ? null : v), z.coerce.number().min(0, "Fixed price can't be negative.").nullable()).default(null),
+  // The business structure this bundle is recommended for; at most one active bundle per structure.
+  businessStructure: z.enum(BUSINESS_STRUCTURES).nullable().default(null),
   bullets: z.array(z.string().trim().max(120)).max(8).default([]),
   featured: z.boolean().default(false),
   showOnLanding: z.boolean().default(true),
@@ -3343,12 +3358,17 @@ adminRouter.post("/bundles", isAdminAuthenticated, requireAdminRole(["super_admi
     if (existing) return res.status(409).json({ error: `A bundle called "${existing.name}" already exists.` });
     const problems = await validateBundleMembers(data.featureKeys);
     if (problems.length > 0) return res.status(400).json({ error: problems.join(" ") });
+    const taken = await structureTakenBy(data.businessStructure, data.isActive);
+    if (taken) return res.status(409).json({ error: `"${taken}" is already the active bundle for that business type.` });
 
     const [row] = await db.transaction(async (tx) => {
       if (data.featured) await tx.update(pricingBundles).set({ featured: false });
       return tx.insert(pricingBundles).values({ ...data, key }).returning();
     });
-    await writeAuditLog(req, "create_bundle", row.key, { featureKeys: data.featureKeys, discountPct: data.discountPct });
+    await writeAuditLog(req, "create_bundle", row.key, {
+      featureKeys: data.featureKeys, discountPct: data.discountPct, businessStructure: data.businessStructure,
+      fixedPriceMonthly: data.fixedPriceMonthly, fixedPriceAnnual: data.fixedPriceAnnual,
+    });
     return res.json({ success: true, bundle: row });
   } catch (error) {
     console.error("Create bundle error:", error);
@@ -3365,6 +3385,8 @@ adminRouter.put("/bundles/:id", isAdminAuthenticated, requireAdminRole(["super_a
     if (!before) return res.status(404).json({ error: "Bundle not found." });
     const problems = await validateBundleMembers(data.featureKeys);
     if (problems.length > 0) return res.status(400).json({ error: problems.join(" ") });
+    const taken = await structureTakenBy(data.businessStructure, data.isActive, before.id);
+    if (taken) return res.status(409).json({ error: `"${taken}" is already the active bundle for that business type.` });
 
     // The key stays put on rename: people may have it saved from the landing page.
     const [row] = await db.transaction(async (tx) => {
@@ -3372,8 +3394,14 @@ adminRouter.put("/bundles/:id", isAdminAuthenticated, requireAdminRole(["super_a
       return tx.update(pricingBundles).set({ ...data, updatedAt: new Date() }).where(eq(pricingBundles.id, before.id)).returning();
     });
     await writeAuditLog(req, "update_bundle", before.key, {
-      before: { featureKeys: before.featureKeys, discountPct: Number(before.discountPct), isActive: before.isActive },
-      after: { featureKeys: data.featureKeys, discountPct: data.discountPct, isActive: data.isActive },
+      before: {
+        featureKeys: before.featureKeys, discountPct: Number(before.discountPct), isActive: before.isActive,
+        businessStructure: before.businessStructure, fixedPriceMonthly: before.fixedPriceMonthly, fixedPriceAnnual: before.fixedPriceAnnual,
+      },
+      after: {
+        featureKeys: data.featureKeys, discountPct: data.discountPct, isActive: data.isActive,
+        businessStructure: data.businessStructure, fixedPriceMonthly: data.fixedPriceMonthly, fixedPriceAnnual: data.fixedPriceAnnual,
+      },
     });
     return res.json({ success: true, bundle: row });
   } catch (error) {

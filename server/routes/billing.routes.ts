@@ -216,7 +216,7 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
         const heldKeys = held.map((h) => h.featureKey);
         const priceByKey = new Map<string, number>(held.map((h) => [h.featureKey, h.price]));
         for (const row of rows) priceByKey.set(row.key, catalogPrice(row, data.billingCycle));
-        const bundles = await getPricingBundles();
+        const bundles = await getPricingBundles(data.billingCycle);
         const increment = priceIncrement(heldKeys, data.featureKeys, (k) => priceByKey.get(k) ?? 0, bundles);
 
         const heldSet = new Set(heldKeys);

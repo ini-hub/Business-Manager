@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useStore } from "@/lib/store-context";
+import { BusinessStructurePicker } from "@/components/business-structure-picker";
+import type { BusinessStructure } from "@shared/schema/_helpers";
 import { useAuth } from "@/hooks/useAuth";
 import { useEntitlements, formatPrice } from "@/hooks/useEntitlements";
 import { openBilling } from "@/lib/upgrade-prompt";
@@ -81,6 +83,18 @@ export default function SettingsBusinessPage() {
       toast({ title: checked ? "Staff now see only their own sales" : "Staff can now see all sales" });
     } catch {
       toast({ title: "Couldn't update this setting", description: "Please try again.", variant: "destructive" });
+    }
+  };
+
+  // How the business is set up. Only used to recommend a pricing bundle when the trial ends.
+  const structure = ((business as any)?.businessStructure ?? null) as BusinessStructure | null;
+  const setStructure = async (value: BusinessStructure) => {
+    if (!business || value === structure) return;
+    try {
+      await updateBusiness(business.id, { businessStructure: value } as any);
+      toast({ title: "Business type updated" });
+    } catch {
+      toast({ title: "Couldn't update the business type", description: "Please try again.", variant: "destructive" });
     }
   };
 
@@ -272,6 +286,11 @@ export default function SettingsBusinessPage() {
             <Link href="/settings/store-details" className="font-semibold underline">Pay rules</Link>
           </p>
         )}
+      </Card>
+
+      <Card title="Business type" hint="Used to suggest the right plan bundle when your trial ends. It doesn't limit what you can use.">
+        <BusinessStructurePicker value={structure} onChange={setStructure} disabled={!isOwner} />
+        {!isOwner && <p className="text-xs text-muted-foreground">Only the owner can change this.</p>}
       </Card>
 
       <Card title="Who sees which sales" hint="Owners and managers always see every sale. This decides what Staff see.">

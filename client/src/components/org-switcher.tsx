@@ -30,10 +30,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { BusinessStructurePicker } from "@/components/business-structure-picker";
+import type { BusinessStructure } from "@shared/schema/_helpers";
+
 export function OrgSwitcher() {
   const [open, setOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newOrgName, setNewOrgName] = useState("");
+  const [newOrgStructure, setNewOrgStructure] = useState<BusinessStructure | null>(null);
   const { toast } = useToast();
 
   // Fetch the user data using custom key to ensure we match auth hook query
@@ -72,8 +76,8 @@ export function OrgSwitcher() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const response = await apiRequest("POST", "/api/auth/organisation/create", { name });
+    mutationFn: async (input: { name: string; businessStructure: BusinessStructure }) => {
+      const response = await apiRequest("POST", "/api/auth/organisation/create", input);
       return response.json();
     },
     onSuccess: (data) => {
@@ -202,6 +206,10 @@ export function OrgSwitcher() {
                 disabled={createMutation.isPending}
               />
             </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-foreground">How is this business set up?</Label>
+              <BusinessStructurePicker value={newOrgStructure} onChange={setNewOrgStructure} disabled={createMutation.isPending} />
+            </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
@@ -221,7 +229,15 @@ export function OrgSwitcher() {
                   });
                   return;
                 }
-                createMutation.mutate(newOrgName);
+                if (!newOrgStructure) {
+                  toast({
+                    title: "Required Field",
+                    description: "Choose the option that fits this business.",
+                    variant: "destructive",
+                  });
+                  return;
+                }
+                createMutation.mutate({ name: newOrgName, businessStructure: newOrgStructure });
               }}
               disabled={createMutation.isPending}
               className="font-semibold"

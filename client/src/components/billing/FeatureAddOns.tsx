@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import type { FeatureCatalog, Subscription } from "@shared/schema";
-import { priceIncrement } from "@shared/bundles";
+import { bundleForCycle, priceIncrement } from "@shared/bundles";
+import type { Business } from "@shared/schema";
 import { keepBiggestTiers, otherTiers } from "@shared/features";
 import { CATEGORY_LABELS, formatMoney, readPlanChoice, savePlanChoice, usePublicPricing } from "@/lib/pricing";
 import { Spinner } from "@/components/ui/loader";
@@ -61,6 +62,12 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
   // charges by (shared/bundles.ts priceIncrement).
   const { data: pricing, isLoading: pricingLoading } = usePublicPricing();
   const bundles = pricing?.bundles ?? [];
+  // The bundle recommended for this business's structure (chosen at signup). Only a
+  // starting point for the checkboxes - never a restriction.
+  const { data: business, isLoading: businessLoading } = useQuery<Business | null>({ queryKey: ["/api/business"] });
+  const recommendedBundle = business?.businessStructure
+    ? bundles.find((b) => b.businessStructure === business.businessStructure)
+    : undefined;
 
   const purchasable = catalog.filter((f) => f.tierType === "paid_flat" || f.tierType === "paid_metered_limit" || f.tierType === "bundle_parent");
   // Only these keys are ever checkboxes here, so only these ever belong in a
@@ -71,19 +78,24 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
   const purchasedSet = new Set(purchasedKeys.filter((k) => purchasableKeys.has(k)));
 
   useEffect(() => {
-    if (seeded.current || catalogLoading || entitlementsLoading || pricingLoading) return;
+    if (seeded.current || catalogLoading || entitlementsLoading || pricingLoading || businessLoading) return;
     seeded.current = true;
     // Someone who picked a bundle or modules on the landing page opens on that
     // pick. Only before they have bought anything - an existing customer's
     // checkout always opens on what they currently have.
     const choice = readPlanChoice();
-    const chosen = purchasedKeys.length === 0 && choice
-      ? choice.bundle ? bundles.find((b) => b.key === choice.bundle)?.featureKeys : choice.features
+    // With no landing-page pick, a first-time subscriber opens on the bundle recommended for
+    // their business structure (during a trial everything is entitled, so the plain default
+    // would otherwise tick every module).
+    const chosen = purchasedKeys.length === 0
+      ? choice
+        ? choice.bundle ? bundles.find((b) => b.key === choice.bundle)?.featureKeys : choice.features
+        : recommendedBundle?.featureKeys
       : undefined;
     const keys = chosen ? chosen.filter((k) => purchasableKeys.has(k)) : [];
     setSelected(new Set(keys.length > 0 ? keys : entitledKeys.filter((k) => purchasableKeys.has(k))));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogLoading, entitlementsLoading, pricingLoading]);
+  }, [catalogLoading, entitlementsLoading, pricingLoading, businessLoading]);
 
   // A subscription already commits to a cycle - renewals bill everything on
   // it together (§2.6), so there's no per-purchase cycle choice once one
@@ -134,7 +146,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
   // already purchased, or unchecked that was never purchased, is unchanged.
   const toAdd = Array.from(selected).filter((k) => !purchasedSet.has(k));
   const toRemove = Array.from(purchasedSet).filter((k) => !selected.has(k));
-  const increment = priceIncrement(purchasedSet, toAdd, priceOf, bundles);
+  const increment = priceIncrement(purchasedSet, toAdd, priceOf, bundles.map((b) => bundleForCycle(b, effectiveCycle)));
   const addTotal = increment.total;
   const appliedBundle = bundles.find((b) => b.key === increment.bundleKey);
   const hasChanges = toAdd.length > 0 || toRemove.length > 0;
@@ -232,7 +244,8 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
               return (
                 <Button key={b.key} type="button" variant="outline" size="sm" onClick={() => addBundle(b.featureKeys)} data-testid={`button-bundle-${b.key}`}>
                   Add {b.name} · {formatMoney(price, currency)} /{effectiveCycle}
-                  {b.discountPct > 0 && <Badge variant="secondary" className="ml-2">Save {b.discountPct}%</Badge>}
+                  {b.key === recommendedBundle?.key && <Badge variant="secondary" className="ml-2">Recommended for you</Badge>}
+                  {b.discountPct > 0 && b.fixedPriceMonthly == null && b.fixedPriceAnnual == null && <Badge variant="secondary" className="ml-2">Save {b.discountPct}%</Badge>}
                 </Button>
               );
             })}

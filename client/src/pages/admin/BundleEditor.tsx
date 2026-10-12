@@ -13,12 +13,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { priceSelection, type PublicPricing } from "@shared/bundles";
+import { BUSINESS_STRUCTURES, BUSINESS_STRUCTURE_LABELS } from "@shared/schema/_helpers";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CATEGORY_LABELS, formatMoney } from "@/lib/pricing";
 import type { BundleRow } from "./Bundles";
 import { Spinner } from "@/components/ui/loader";
 
 const EMPTY = {
   name: "", tagline: "", featureKeys: [] as string[], discountPct: "0", bullets: "",
+  fixedPriceMonthly: "", fixedPriceAnnual: "", businessStructure: "none",
   featured: false, showOnLanding: true, isActive: true, sortOrder: "0",
 };
 
@@ -48,6 +51,9 @@ export default function BundleEditor() {
     if (!existing) return;
     setForm({
       name: existing.name, tagline: existing.tagline, featureKeys: existing.featureKeys, discountPct: String(Number(existing.discountPct)),
+      fixedPriceMonthly: existing.fixedPriceMonthly == null ? "" : String(Number(existing.fixedPriceMonthly)),
+      fixedPriceAnnual: existing.fixedPriceAnnual == null ? "" : String(Number(existing.fixedPriceAnnual)),
+      businessStructure: existing.businessStructure ?? "none",
       bullets: existing.bullets.join("\n"), featured: existing.featured, showOnLanding: existing.showOnLanding, isActive: existing.isActive,
       sortOrder: String(existing.sortOrder),
     });
@@ -78,15 +84,26 @@ export default function BundleEditor() {
     });
   };
 
-  const preview = useMemo(() => {
+  // A blank fixed price means "use the % discount" for that cycle.
+  const fixedOf = (v: string) => (v.trim() === "" ? null : Number(v));
+  const previewFor = (cycle: "monthly" | "annual") => {
     const pct = Number(form.discountPct) || 0;
-    return priceSelection(form.featureKeys, (k) => featureByKey.get(k)?.priceMonthly ?? 0, [{ key: "preview", name: form.name, featureKeys: form.featureKeys, discountPct: pct }]);
-  }, [form.featureKeys, form.discountPct, form.name, featureByKey]);
+    const fixed = fixedOf(cycle === "annual" ? form.fixedPriceAnnual : form.fixedPriceMonthly);
+    return priceSelection(
+      form.featureKeys,
+      (k) => { const f = featureByKey.get(k); return (cycle === "annual" ? f?.priceAnnual : f?.priceMonthly) ?? 0; },
+      [{ key: "preview", name: form.name, featureKeys: form.featureKeys, discountPct: pct, fixedPrice: fixed != null && Number.isFinite(fixed) ? fixed : null }],
+    );
+  };
+  const preview = useMemo(() => previewFor("monthly"), [form.featureKeys, form.discountPct, form.fixedPriceMonthly, form.name, featureByKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const previewAnnual = useMemo(() => previewFor("annual"), [form.featureKeys, form.discountPct, form.fixedPriceAnnual, form.name, featureByKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = useMutation({
     mutationFn: async () => {
       const payload = {
         name: form.name, tagline: form.tagline, featureKeys: form.featureKeys, discountPct: Number(form.discountPct),
+        fixedPriceMonthly: fixedOf(form.fixedPriceMonthly), fixedPriceAnnual: fixedOf(form.fixedPriceAnnual),
+        businessStructure: form.businessStructure === "none" ? null : form.businessStructure,
         bullets: form.bullets.split("\n").map((l) => l.trim()).filter(Boolean),
         featured: form.featured, showOnLanding: form.showOnLanding, isActive: form.isActive, sortOrder: Number(form.sortOrder) || 0,
       };
@@ -141,6 +158,31 @@ export default function BundleEditor() {
               <Label htmlFor="bundle-discount">Discount (%)</Label>
               <Input id="bundle-discount" type="number" min={0} max={90} value={form.discountPct} onChange={(e) => setForm({ ...form, discountPct: e.target.value })} />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="bundle-fixed-monthly">Fixed price per month (optional)</Label>
+              <Input id="bundle-fixed-monthly" type="number" min={0} value={form.fixedPriceMonthly} placeholder="Blank = use the discount"
+                onChange={(e) => setForm({ ...form, fixedPriceMonthly: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="bundle-fixed-annual">Fixed price per year (optional)</Label>
+              <Input id="bundle-fixed-annual" type="number" min={0} value={form.fixedPriceAnnual} placeholder="Blank = use the discount"
+                onChange={(e) => setForm({ ...form, fixedPriceAnnual: e.target.value })} />
+            </div>
+            <p className="text-xs text-muted-foreground sm:col-span-2">
+              A fixed price replaces the feature-by-feature total (and the discount) while a business holds every feature in this bundle.
+              It can never charge more than the features' list prices. Features outside the bundle still bill at list.
+            </p>
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="bundle-structure">Recommended for</Label>
+              <Select value={form.businessStructure} onValueChange={(v) => setForm({ ...form, businessStructure: v })}>
+                <SelectTrigger id="bundle-structure" className="sm:w-72"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No business type</SelectItem>
+                  {BUSINESS_STRUCTURES.map((k) => <SelectItem key={k} value={k}>{BUSINESS_STRUCTURE_LABELS[k].name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Businesses of this type open checkout on this bundle when their trial ends. One active bundle per type.</p>
+            </div>
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="bundle-tagline">Tagline</Label>
               <Input id="bundle-tagline" value={form.tagline} onChange={(e) => setForm({ ...form, tagline: e.target.value })} placeholder="For shops selling on credit" />
@@ -187,6 +229,7 @@ export default function BundleEditor() {
         <p className="text-sm" aria-live="polite">
           Customers pay <strong>{formatMoney(preview.total, currency)}</strong> /month
           {preview.discount > 0 && <> (instead of {formatMoney(preview.subtotal, currency)}, saving {formatMoney(preview.discount, currency)})</>}
+          {" · "}<strong>{formatMoney(previewAnnual.total, currency)}</strong> /year
         </p>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => navigate("/super-admin/bundles")}>Cancel</Button>

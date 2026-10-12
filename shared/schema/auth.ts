@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { businesses, organisations, type Business } from "./organisations";
 import { notifications } from "./notifications";
-import { trimmedString } from "./_helpers";
+import { trimmedString, BUSINESS_STRUCTURES } from "./_helpers";
 
 // Session storage table
 export const sessions = pgTable(
@@ -209,6 +209,8 @@ export type OtpCode = typeof otpCodes.$inferSelect;
 export const signupSchema = z.object({
   ownerName: z.string().trim().optional(),
   businessName: trimmedString(1, "Business name is required"),
+  // Optional so older clients keep working; the signup form always sends it.
+  businessStructure: z.enum(BUSINESS_STRUCTURES).optional(),
   address: z.string().optional(),
   phoneCountryCode: z.string().default("+234"),
   phone: z.string().optional(),

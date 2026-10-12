@@ -41,6 +41,7 @@ import {
   type UserRole
 } from "@shared/schema";
 import { z } from "zod";
+import { BUSINESS_STRUCTURES } from "@shared/schema/_helpers";
 import { normalizePhoneForStorage } from "@shared/phone-utils";
 import { isUniqueViolation, getViolatedConstraint } from "./db-errors";
 import { db } from "./db";
@@ -387,6 +388,7 @@ export async function registerRoutes(
         name: data.businessName,
         slug: data.businessName.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
         receiptPrefix: data.businessName.substring(0, 3).toUpperCase(),
+        businessStructure: data.businessStructure ?? null,
         status: "trialing",
         trialEndsAt: computeTrialEndsAt(new Date(), trialDays),
       });
@@ -976,6 +978,11 @@ export async function registerRoutes(
       if (!name || typeof name !== "string" || !name.trim()) {
         return res.status(400).json({ error: "Business name is required." });
       }
+      // Optional: recommends a pricing bundle when the trial ends (migration 0133).
+      const structureParsed = z.enum(BUSINESS_STRUCTURES).nullish().safeParse(req.body.businessStructure);
+      if (!structureParsed.success) {
+        return res.status(400).json({ error: "Choose a valid business type." });
+      }
 
       const userId = req.user!.userId;
       const user = await storage.getUser(userId);
@@ -992,6 +999,7 @@ export async function registerRoutes(
         name: nameTrimmed,
         slug,
         receiptPrefix: nameTrimmed.substring(0, 3).toUpperCase(),
+        businessStructure: structureParsed.data ?? null,
         status: "trialing",
         trialEndsAt: computeTrialEndsAt(new Date(), trialDays),
       });

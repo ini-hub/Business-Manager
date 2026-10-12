@@ -20,6 +20,8 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import { deduplicatedCountryCodes, validatePhoneNumber } from "@/lib/phone-utils";
 import { legalDocHref } from "@/lib/legal-docs";
 import { Spinner } from "@/components/ui/loader";
+import { BusinessStructurePicker } from "@/components/business-structure-picker";
+import { BUSINESS_STRUCTURES } from "@shared/schema/_helpers";
 
 interface LegalDocumentSummary {
   documentType: string;
@@ -30,6 +32,7 @@ interface LegalDocumentSummary {
 const signupSchema = z.object({
   ownerName: z.string().min(1, "Your name is required").transform(s => s.trim()),
   businessName: z.string().min(1, "Business name is required").transform(s => s.trim()),
+  businessStructure: z.enum(BUSINESS_STRUCTURES, { errorMap: () => ({ message: "Choose the option that fits your business" }) }),
   address: z.string().optional(),
   phoneCountryCode: z.string().default("+234"),
   phone: z.string().optional(),
@@ -328,6 +331,20 @@ export default function Signup() {
                           data-testid="input-business-name"
                           {...field}
                         />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="businessStructure"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>How is your business set up?</FormLabel>
+                      <FormControl>
+                        <BusinessStructurePicker value={field.value} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

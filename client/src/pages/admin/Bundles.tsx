@@ -20,6 +20,9 @@ export interface BundleRow {
   tagline: string;
   featureKeys: string[];
   discountPct: number | string;
+  fixedPriceMonthly: number | string | null;
+  fixedPriceAnnual: number | string | null;
+  businessStructure: string | null;
   bullets: string[];
   featured: boolean;
   showOnLanding: boolean;

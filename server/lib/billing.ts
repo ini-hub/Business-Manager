@@ -248,7 +248,7 @@ export async function maybeProcessDueRenewal(
   const addOns = await getActiveFeaturePricing(claimed.organisationId, cycle);
   // Same bundle rule as checkout: the discount rides along only while the
   // org still holds every feature in a bundle, so removing one drops it here.
-  const bundles = await getPricingBundles();
+  const bundles = await getPricingBundles(cycle);
   const addOnPrice = new Map(addOns.map((a) => [a.featureKey, a.price]));
   const renewal = priceSelection(addOnPrice.keys(), (k) => addOnPrice.get(k) ?? 0, bundles);
   const discountLine = discountBreakdownLine(bundles, renewal);

@@ -21,14 +21,23 @@ export function catalogPrice(row: Pick<FeatureCatalog, "priceMonthly" | "priceAn
   return Number(cycle === "annual" ? row.priceAnnual : row.priceMonthly) || 0;
 }
 
-function toPricingBundle(r: PricingBundleRow): PricingBundle {
-  return { key: r.key, name: r.name, featureKeys: r.featureKeys ?? [], discountPct: Number(r.discountPct) || 0 };
+/** The admin fixed price for a cycle, or null when none is set (then discountPct applies). */
+function fixedPriceFor(r: PricingBundleRow, cycle: BillingCycle): number | null {
+  const v = cycle === "annual" ? r.fixedPriceAnnual : r.fixedPriceMonthly;
+  return v == null ? null : Number(v);
 }
 
-/** Active bundles, in display order - what checkout and renewal price against. */
-export async function getPricingBundles(): Promise<PricingBundle[]> {
+function toPricingBundle(r: PricingBundleRow, cycle: BillingCycle): PricingBundle {
+  return {
+    key: r.key, name: r.name, featureKeys: r.featureKeys ?? [], discountPct: Number(r.discountPct) || 0,
+    fixedPrice: fixedPriceFor(r, cycle), businessStructure: r.businessStructure ?? null,
+  };
+}
+
+/** Active bundles, in display order - what checkout and renewal price against, for one billing cycle. */
+export async function getPricingBundles(cycle: BillingCycle = "monthly"): Promise<PricingBundle[]> {
   const rows = await db.select().from(pricingBundles).where(eq(pricingBundles.isActive, true)).orderBy(pricingBundles.sortOrder);
-  return rows.map(toPricingBundle);
+  return rows.map((r) => toPricingBundle(r, cycle));
 }
 
 /** The catalog as bundle validation needs it: status, tier and sold dependencies per feature. */
@@ -75,12 +84,17 @@ export async function getPublicPricing(): Promise<PublicPricing> {
   const nameOf = (k: string) => byKey.get(k)?.name ?? k;
 
   const bundles: PublicPricing["bundles"] = bundleRows.map((b) => {
-    const pb = toPricingBundle(b);
-    const monthly = priceSelection(pb.featureKeys, (k) => catalogPrice(byKey.get(k)!, "monthly"), [pb]);
-    const annual = priceSelection(pb.featureKeys, (k) => catalogPrice(byKey.get(k)!, "annual"), [pb]);
+    const pbMonthly = toPricingBundle(b, "monthly");
+    const pbAnnual = toPricingBundle(b, "annual");
+    const pb = pbMonthly;
+    const monthly = priceSelection(pb.featureKeys, (k) => catalogPrice(byKey.get(k)!, "monthly"), [pbMonthly]);
+    const annual = priceSelection(pb.featureKeys, (k) => catalogPrice(byKey.get(k)!, "annual"), [pbAnnual]);
     const written = (b.bullets ?? []).filter((x) => x.trim());
     return {
       key: b.key, name: b.name, tagline: b.tagline, featured: b.featured, discountPct: pb.discountPct,
+      businessStructure: b.businessStructure ?? null,
+      fixedPriceMonthly: pbMonthly.fixedPrice ?? null,
+      fixedPriceAnnual: pbAnnual.fixedPrice ?? null,
       bullets: written.length > 0 ? written : deriveBullets(pb, forBullets, nameOf),
       showOnLanding: b.showOnLanding,
       featureKeys: [...pb.featureKeys],
