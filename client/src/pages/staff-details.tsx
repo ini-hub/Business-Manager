@@ -589,7 +589,7 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
                     </TableHeader>
                     <TableBody>
                       {advances.map((a) => (
-                        <TableRow key={a.id}>
+                        <TableRow key={a.id} className="cursor-pointer" onClick={() => setLocation(`/payroll/advances/${a.id}`)}>
                           <TableCell className="whitespace-nowrap">{format(new Date(`${a.date}T00:00:00`), "dd MMM yyyy")}</TableCell>
                           <TableCell className="capitalize">{a.status}{a.status === "approved" ? ` · ${a.recoveryStatus.replace(/_/g, " ")}` : ""}</TableCell>
                           <TableCell className="text-right">{formatCurrency(a.amount, currency)}</TableCell>

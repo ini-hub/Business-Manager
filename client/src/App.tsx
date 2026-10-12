@@ -103,6 +103,8 @@ const PayrollNewPage = lazy(() => import("@/pages/payroll-new"));
 const PayrollPeriodPage = lazy(() => import("@/pages/payroll-period"));
 const PayrollDetailPage = lazy(() => import("@/pages/payroll-detail"));
 const PayrollAdvancesPage = lazy(() => import("@/pages/payroll-advances"));
+const PayrollAdvanceNewPage = lazy(() => import("@/pages/payroll-advance-new"));
+const PayrollAdvanceDetailPage = lazy(() => import("@/pages/payroll-advance-detail"));
 const PayrollReportPage = lazy(() => import("@/pages/payroll-report"));
 const CreditSalesPage = lazy(() => import("@/pages/credit-sales"));
 const BookingsPage = lazy(() => import("@/pages/bookings"));
@@ -672,6 +674,8 @@ function AuthenticatedLayout() {
                   <Route path="/payroll" component={PayrollPage} />
                   <Route path="/payroll/new" component={PayrollNewPage} />
                   <Route path="/payroll/advances" component={PayrollAdvancesPage} />
+                  <Route path="/payroll/advances/new" component={PayrollAdvanceNewPage} />
+                  <Route path="/payroll/advances/:id" component={PayrollAdvanceDetailPage} />
                   <Route path="/payroll/report" component={PayrollReportPage} />
                   <Route path="/payroll/:periodId" component={PayrollPeriodPage} />
                   <Route path="/profile" component={ProfilePage} />

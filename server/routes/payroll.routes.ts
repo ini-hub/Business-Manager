@@ -5,7 +5,7 @@ import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
 import {
   insertExpenseSchema, staff, expenses, salaryAdvances,
-  expenseCategories, payrollDeductions
+  expenseCategories,
 } from "@shared/schema";
 import { z } from "zod";
 import { db } from "../db";
@@ -450,6 +450,7 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (!staffId || !type || !label || !amount) return res.status(400).json({ error: "staffId, type, label, and amount are required." });
       const userId = (req as any).user?.id;
       if (type === "staff_credit") return res.status(400).json({ error: "Staff credit deductions are proposed automatically from the Borrow Book and cannot be added by hand." });
+      if (type === "advance_recovery") return res.status(400).json({ error: "Advance recovery is proposed automatically from approved salary advances and cannot be added by hand. Record the advance and approve it instead." });
       const deduction = await storage.createPayrollDeduction({ periodId: req.params.id, storeId: period.storeId, staffId, type, label, amount: Number(amount), createdByUserId: userId });
       auditLogger.log({ action: "PAYROLL_DEDUCTION_CREATE", resource: "payroll_deduction", resourceId: deduction.id, userId, ip: getClientIp(req), status: "success", details: { periodId: req.params.id, staffId, type, label, amount } });
       // A new deduction outranks staff credit, so the residual left for debt
@@ -625,6 +626,15 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
     } catch (e) { res.status(500).json({ error: "Could not create salary advance." }); }
   });
 
+  app.get("/api/payroll/advances/:id", requirePermission("/payroll"), async (req, res) => {
+    try {
+      const adv = await storage.getSalaryAdvanceDetail(req.params.id);
+      if (!adv) return res.status(404).json({ error: "Advance not found." });
+      if (!(await checkStoreAccess(adv.storeId, req, res))) return;
+      res.json(adv);
+    } catch (e) { res.status(500).json({ error: "Could not fetch advance." }); }
+  });
+
   // Approve a pending advance — approver identity is kept distinct from the
   // requester (givenByUserId) so the audit trail shows both actors.
   app.post("/api/payroll/advances/:id/approve", requirePermission("/payroll"), async (req, res) => {
@@ -635,6 +645,14 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (adv.status !== "pending") return res.status(400).json({ error: `Advance is already ${adv.status}.` });
       const userId = (req as any).user?.id;
       const advance = await storage.updateSalaryAdvanceStatus(req.params.id, "approved", userId);
+      // Approval is what makes an advance recoverable. Open periods that were
+      // calculated before now won't see it until their next calculation, so
+      // propose it on them immediately (best-effort; the approval is committed).
+      try {
+        for (const periodId of await storage.getOpenPeriodIdsForStaff(adv.storeId, adv.staffId)) {
+          await resyncPriorityDeductions(periodId);
+        }
+      } catch (e) { console.error("Failed to propose approved advance on open periods:", e); }
       const ctx = await getAuditContext(req, { storeId: adv.storeId });
       auditLogger.logEvent(ctx, "SALARY_ADVANCE_APPROVE", "salary_advance", req.params.id, "success", {
         previousValues: { status: adv.status },
@@ -685,23 +703,14 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (adv.status !== "approved") return res.status(400).json({ error: "Only approved advances can be recovered." });
       if (adv.isRecovered) return res.status(400).json({ error: "This advance has already been recovered." });
 
-      // Blocks on ANY unsettled deduction line, waived or not. A waived line
-      // is only excluded FOR THAT PERIOD — the advance stays open and gets
-      // re-proposed next payroll calculation (see syncProposals' stale-row
-      // handling, which never deletes a waived row). Letting the manual
-      // override proceed past a waived-but-live line would leave that stale
-      // line sitting on the period forever: nothing re-syncs it once the
-      // advance this override just fully recovered no longer exists to
-      // propose.
-      const [liveProposal] = await db.select().from(payrollDeductions).where(and(
-        eq(payrollDeductions.salaryAdvanceId, req.params.id),
-        sql`${payrollDeductions.settledAt} IS NULL`,
-      ));
-      if (liveProposal) {
-        return res.status(400).json({ error: "This advance still has a payroll deduction line on an open period — waived or not, it will be recovered automatically when that period is marked paid. Delete or restore that line first if you need to recover it outside payroll." });
+      // The guard (any unsettled line, waived or not, or a reservation to an
+      // unpaid period) runs inside the same locked transaction as the write.
+      let advance;
+      try {
+        advance = await storage.markAdvanceRecovered(req.params.id, reason, { refuseWhenInPayroll: true });
+      } catch (e: any) {
+        return res.status(400).json({ error: e?.message || "Could not mark advance as recovered." });
       }
-
-      const advance = await storage.markAdvanceRecovered(req.params.id, reason);
       const ctx = await getAuditContext(req, { storeId: adv.storeId });
       auditLogger.logEvent(ctx, "SALARY_ADVANCE_RECOVER", "salary_advance", req.params.id, "success", {
         previousValues: { isRecovered: adv.isRecovered, recoveredPeriodId: adv.recoveredPeriodId },

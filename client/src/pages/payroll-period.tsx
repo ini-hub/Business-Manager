@@ -251,7 +251,7 @@ export default function PayrollPeriodPage() {
       ? format(parseISO(p.startDate), "MMMM yyyy")
       : `${format(parseISO(p.startDate), "MMM d")} – ${format(parseISO(p.endDate), "MMM d, yyyy")}`;
   const periodRange = (p: PayrollPeriod) =>
-    `${format(parseISO(p.startDate), "d")} to ${format(parseISO(p.endDate), "d MMMM yyyy")}`;
+    `${format(parseISO(p.startDate), "d")} - ${format(parseISO(p.endDate), "d MMMM yyyy")}`;
 
   const unrecordedStaffIds = new Set(unrecordedDays.map(u => u.staffId));
   const hasUnrecorded = unrecordedDays.length > 0 && !!selectedPeriod && selectedPeriod.status !== "paid";
@@ -387,14 +387,11 @@ export default function PayrollPeriodPage() {
               {/* Header: title, status steps, actions (desktop) */}
               <div className="rounded-xl border bg-card p-4 md:p-5 space-y-4">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
+                  {/* The page header above already carries the title and range. */}
                   <div className="hidden md:block">
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-lg font-bold">{periodLabel(selectedPeriod)} payroll</h2>
-                      <Badge variant="outline" className={`${STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].color} ${STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].bg} border`}>
-                        {STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].label}
-                      </Badge>
-                    </div>
-                    <p className="mt-0.5 text-sm text-muted-foreground capitalize">{selectedPeriod.periodType} · {periodRange(selectedPeriod)}</p>
+                    <Badge variant="outline" className={`${STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].color} ${STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].bg} border`}>
+                      {STATUS_CONFIG[selectedPeriod.status as keyof typeof STATUS_CONFIG].label}
+                    </Badge>
                   </div>
                   <div className="hidden md:flex items-center gap-2">
                     {periodMenu}
@@ -436,15 +433,29 @@ export default function PayrollPeriodPage() {
                 )}
 
                 {hasUnrecorded && (
-                  <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-200">
+                  <Link
+                    href="/staffs/attendance"
+                    className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 md:hidden dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-200"
+                  >
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span className="min-w-0 flex-1 font-medium leading-snug">
+                      {unrecordedDays.length} staff {unrecordedDays.length !== 1 ? "have" : "has"} unrecorded days
+                    </span>
+                    <span className="flex shrink-0 items-center text-xs font-semibold">
+                      Mark <ChevronRight className="h-4 w-4" />
+                    </span>
+                  </Link>
+                )}
+
+                {hasUnrecorded && (
+                  <div className="hidden items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 md:flex dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-200">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                     <div className="min-w-0 flex-1 text-sm">
                       <p>
                         <strong>{unrecordedDays.length} staff {unrecordedDays.length !== 1 ? "have" : "has"} days with no attendance recorded.</strong>{" "}
                         Unrecorded days count as absent and lower pay.
                       </p>
-                      <p className="mt-0.5 text-xs opacity-90 md:hidden">Tap to mark attendance.</p>
-                      <p className="mt-0.5 hidden text-xs opacity-90 md:block">Mark attendance, then recalculate before approving.</p>
+                      <p className="mt-0.5 text-xs opacity-90">Mark attendance, then recalculate before approving.</p>
                     </div>
                     <Button asChild size="sm" variant="outline" className="shrink-0 bg-background text-foreground">
                       <Link href="/staffs/attendance">Mark attendance</Link>
@@ -509,22 +520,25 @@ export default function PayrollPeriodPage() {
                   <div className="md:hidden rounded-xl border bg-card divide-y overflow-hidden">
                     {shownEntries.length === 0 && <p className="p-6 text-center text-sm text-muted-foreground">No staff match "{staffSearch}".</p>}
                     {shownEntries.map(entry => (
-                      <Link key={entry.staffId} href={detailHref(entry.staffId)} className="flex items-center gap-3 p-4 hover:bg-muted/40">
+                      <Link key={entry.staffId} href={detailHref(entry.staffId)} className="flex items-start gap-3 p-4 hover:bg-muted/40">
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">{entry.staff.name.charAt(0)}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-semibold">{entry.staff.name}</span>
-                          <span className="block text-xs text-muted-foreground">
-                            {entry.activeDays} active · {entry.passiveDays} passive
-                            {hasUnrecorded && unrecordedStaffIds.has(entry.staffId) && <span className="text-amber-700 dark:text-amber-400"> · days unrecorded</span>}
+                        <span className="min-w-0 flex-1 space-y-2">
+                          {/* Name sits on its own line so it can use the full width. */}
+                          <span className="block break-words font-semibold leading-snug">{entry.staff.name}</span>
+                          <span className="flex items-end justify-between gap-3">
+                            <span className="min-w-0 text-xs text-muted-foreground">
+                              {entry.activeDays} active · {entry.passiveDays} passive
+                              {hasUnrecorded && unrecordedStaffIds.has(entry.staffId) && <span className="block text-amber-700 dark:text-amber-400">days unrecorded</span>}
+                            </span>
+                            <span className="shrink-0 text-right">
+                              <span className="block font-bold tabular-nums">{fmt(entry.takeHomePay ?? entry.netPay)}</span>
+                              <span className="block text-xs tabular-nums text-muted-foreground">
+                                {(entry.deductionsTotal ?? 0) > 0 ? `−${fmt(entry.deductionsTotal)}` : fmt(0)}
+                              </span>
+                            </span>
                           </span>
                         </span>
-                        <span className="text-right">
-                          <span className="block font-bold tabular-nums">{fmt(entry.takeHomePay ?? entry.netPay)}</span>
-                          <span className="block text-xs tabular-nums text-muted-foreground">
-                            {(entry.deductionsTotal ?? 0) > 0 ? `−${fmt(entry.deductionsTotal)}` : fmt(0)}
-                          </span>
-                        </span>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <ChevronRight className="mt-3 h-4 w-4 shrink-0 text-muted-foreground" />
                       </Link>
                     ))}
                     <p className="p-3 text-center text-xs text-muted-foreground">{shownEntries.length} of {entries.length} staff · gross {fmt(totalGross)}</p>

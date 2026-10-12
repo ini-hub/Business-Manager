@@ -79,7 +79,6 @@ export function PayrollDeductionsList({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="advance_recovery">Advance Recovery</SelectItem>
                     <SelectItem value="tax">Tax</SelectItem>
                     <SelectItem value="penalty">Penalty</SelectItem>
                     <SelectItem value="insurance">Insurance</SelectItem>
@@ -94,7 +93,7 @@ export function PayrollDeductionsList({
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Label (shown on payslip)</Label>
-              <Input className="h-8 text-xs" value={dedLabel} onChange={e => setDedLabel?.(e.target.value)} placeholder="e.g. March advance recovery" />
+              <Input className="h-8 text-xs" value={dedLabel} onChange={e => setDedLabel?.(e.target.value)} placeholder="e.g. March tax" />
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" size="sm" onClick={() => setShowAddDeduction?.(false)}>Cancel</Button>

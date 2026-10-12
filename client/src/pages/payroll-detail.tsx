@@ -47,7 +47,7 @@ export default function PayrollDetailPage() {
 
   const [showTransactions, setShowTransactions] = useState(false);
   const [showAddDeduction, setShowAddDeduction] = useState(false);
-  const [dedType, setDedType] = useState("advance_recovery");
+  const [dedType, setDedType] = useState("tax");
   const [dedLabel, setDedLabel] = useState("");
   const [dedAmount, setDedAmount] = useState("");
   const [debtToWriteOff, setDebtToWriteOff] = useState<any>(null);
@@ -109,7 +109,7 @@ export default function PayrollDetailPage() {
     onSuccess: () => {
       refetchDeductions();
       setShowAddDeduction(false);
-      setDedLabel(""); setDedAmount(""); setDedType("advance_recovery");
+      setDedLabel(""); setDedAmount(""); setDedType("tax");
       toast({ title: "Deduction added" });
     },
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
