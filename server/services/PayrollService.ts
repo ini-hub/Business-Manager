@@ -20,6 +20,8 @@ import {
 import { explainCommission, formulaLabel } from "@shared/commission-explainer";
 import { storage } from "../storage";
 import { classifyDay, transportForDay } from "./attendance/dayTyping";
+import { conversionNote, mergeAttendance } from "./payroll/crossStore";
+import { loadCrossStoreScope } from "./payroll/scope";
 import { buildScheduleResolver, exceptionKey, type ScheduleResolver } from "./attendance/scheduleResolver";
 import { staffCreditDeductionService } from "./StaffCreditDeductionService";
 import { salaryAdvanceDeductionService } from "./SalaryAdvanceDeductionService";
@@ -204,6 +206,9 @@ class PayrollService {
 
     const timezone = await getStoreTimezone(period.storeId);
 
+    // Sales and attendance come from the home store and every store these people are assigned to.
+    const scope = await loadCrossStoreScope(period, store, nonArchivedStaff.map((s) => s.id));
+
     // Fetch all checkouts in period date range
     const periodCheckouts = await db.select({
       checkout: checkouts,
@@ -214,7 +219,7 @@ class PayrollService {
       .innerJoin(orders, eq(checkouts.orderId, orders.id))
       .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
       .where(and(
-        eq(checkouts.storeId, period.storeId),
+        inArray(checkouts.storeId, scope.storeIds),
         eq(checkouts.isVoided, false),
         gte(checkouts.createdAt, toUtcStart(period.startDate, timezone)),
         lte(checkouts.createdAt, toUtcEnd(period.endDate, timezone)),
@@ -224,7 +229,7 @@ class PayrollService {
     const attendanceList = await db.select()
       .from(attendanceRecords)
       .where(and(
-        eq(attendanceRecords.storeId, period.storeId),
+        inArray(attendanceRecords.storeId, scope.storeIds),
         gte(attendanceRecords.date, period.startDate),
         lte(attendanceRecords.date, period.endDate),
       ));
@@ -249,7 +254,8 @@ class PayrollService {
 
     // Group attendance by date -> staffId -> status
     const attendanceByDateStaff = new Map<string, Map<string, string>>();
-    for (const rec of attendanceList) {
+    // One mark per person per day even when they have records at several stores.
+    for (const rec of Array.from(mergeAttendance(attendanceList, period.storeId).values())) {
       if (!attendanceByDateStaff.has(rec.date)) attendanceByDateStaff.set(rec.date, new Map());
       attendanceByDateStaff.get(rec.date)!.set(rec.staffId, rec.status);
     }
@@ -405,6 +411,9 @@ class PayrollService {
       serviceCountWorked: number;
     }>();
 
+    // Who had revenue converted from another store's currency, for the payslip note.
+    const convertedStaff = new Set<string>();
+
     for (const s of activeStaffList) {
       staffTotals.set(s.id, {
         activeDays: 0,
@@ -455,10 +464,18 @@ class PayrollService {
 
       // Calculate checkout shares for active staff
       for (const row of dayServiceCheckouts) {
-        const effectivePrice = netOfReturns(effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice, row.order);
         const leadId = row.checkout.leadStaffId || row.checkout.staffId;
         const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
+        // A sale nobody on this payroll took part in is not converted (so another store's own staff
+        // can never leave this run with a missing-rate error) and earns nothing here.
+        if (![leadId, ...assistants].some((id) => !!id && staffTotals.has(id))) continue;
         const staffCount = 1 + assistants.length;
+        const priceInStoreCurrency = netOfReturns(effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice, row.order);
+        // In the payroll (home store) currency; throws MissingRateError when no rate is set.
+        const effectivePrice = scope.converter.convert(row.checkout.storeId, dateStr, priceInStoreCurrency);
+        if (row.checkout.storeId !== period.storeId) {
+          for (const id of [leadId, ...assistants]) if (id && staffTotals.has(id)) convertedStaff.add(id);
+        }
 
         let leadShare: number;
         let asst1Share = 0;
@@ -527,6 +544,8 @@ class PayrollService {
         : "";
       formulaSteps.push(`Step 1: Resolved compensation settings (Payment Method: ${comp.paymentMethod.toUpperCase()}, Commission Type: ${comp.commissionType}, Formula: ${comp.commissionFormula.toUpperCase()}, Base Salary: ₦${comp.baseSalary}${prorateNote})`);
       formulaSteps.push(`Step 2: Compiled attendance logs (Active: ${totals.activeDays} days @ ₦${comp.activeDayRate}/day = ₦${activePay}, Passive: ${totals.passiveDays} days @ ₦${comp.passiveDayRate}/day = ₦${passivePay}, Leaves: ${totals.leaveDays} days (Paid: ${comp.payLeaveDays ? "Yes" : "No"}) @ ₦${comp.leaveDayRate}/day = ₦${leavePay}, Holidays: ${totals.holidayDays} days (Paid: ${comp.payHolidayDays ? "Yes" : "No"}) @ ₦${comp.holidayDayRate}/day = ₦${holidayPay}, Off-days: ${totals.offDays} days (Paid: ${comp.payOffDays ? "Yes" : "No"}) @ ₦${comp.offDayRate}/day = ₦${offDayPay}. Total Attendance Pay: ₦${totalAttendancePay})`);
+      const convertedNote = convertedStaff.has(staffId) ? conversionNote(scope.converter.used()) : null;
+      if (convertedNote) formulaSteps.push(`Step 2b: ${convertedNote}`);
 
       if (comp.paymentMethod === "fixed") {
         netPay = comp.baseSalary;
@@ -817,6 +836,9 @@ class PayrollService {
 
     const timezone = await getStoreTimezone(period.storeId);
 
+    // Same scope and conversion as calculatePayrollForPeriod, so the lines sum to what was paid.
+    const scope = await loadCrossStoreScope(period, store, [staffId]);
+
     // Fetch period checkouts and orders.
     //
     // Joins exactly what calculatePayrollForPeriod joins. It used to also
@@ -832,7 +854,7 @@ class PayrollService {
       .innerJoin(orders, eq(checkouts.orderId, orders.id))
       .innerJoin(inventory, eq(orders.inventoryId, inventory.id))
       .where(and(
-        eq(checkouts.storeId, period.storeId),
+        inArray(checkouts.storeId, scope.storeIds),
         eq(checkouts.isVoided, false),
         gte(checkouts.createdAt, toUtcStart(period.startDate, timezone)),
         lte(checkouts.createdAt, toUtcEnd(period.endDate, timezone)),
@@ -842,13 +864,16 @@ class PayrollService {
     const attendanceList = await db.select()
       .from(attendanceRecords)
       .where(and(
-        eq(attendanceRecords.storeId, period.storeId),
+        inArray(attendanceRecords.storeId, scope.storeIds),
         eq(attendanceRecords.staffId, staffId),
         gte(attendanceRecords.date, period.startDate),
         lte(attendanceRecords.date, period.endDate),
       ));
 
-    const attendanceMap = new Map(attendanceList.map(a => [a.date, a]));
+    // One record per day across stores, chosen the same way the calculation chooses.
+    const attendanceMap = new Map(
+      Array.from(mergeAttendance(attendanceList, period.storeId).values()).map(a => [a.date, a]),
+    );
 
     const scheduledOff = await this.loadScheduleResolver(period.storeId, period.startDate, period.endDate, storeSettings);
 
@@ -949,7 +974,7 @@ class PayrollService {
 
       if (isAssigned) {
         for (const row of dayServiceCheckouts) {
-          const effectivePrice = netOfReturns(effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice, row.order);
+          const priceInStoreCurrency = netOfReturns(effectivePrices.get(row.checkout.id) ?? row.checkout.totalPrice, row.order);
           const leadId = row.checkout.leadStaffId || row.checkout.staffId;
           const assistants = [row.checkout.assistingStaff1Id, row.checkout.assistingStaff2Id].filter(Boolean) as string[];
           const staffCount = 1 + assistants.length;
@@ -959,6 +984,9 @@ class PayrollService {
           const isAsst2 = assistants[1] === staffId;
 
           if (!isLead && !isAsst1 && !isAsst2) continue;
+
+          // In the payroll (home store) currency, exactly as the calculation banks it.
+          const effectivePrice = scope.converter.convert(row.checkout.storeId, dateStr, priceInStoreCurrency);
 
           let leadShare: number;
           let asst1Share = 0;
@@ -1018,8 +1046,10 @@ class PayrollService {
         }
       }
 
-      const attendanceRecord = attendanceMap.get(dateStr);
-      const isLate = attendanceRecord?.isLate ?? false;
+      // A late day at any store this person is assigned to is charged here (LateArrivalDeductionService reads
+      // the same scoped records), so the drill-down shows it from any of them.
+      const dayRecords = attendanceList.filter(a => a.date === dateStr);
+      const isLate = dayRecords.some(a => a.isLate);
       // Mirrors LateArrivalDeductionService: a flat amount per late day, and only
       // while the store has the charge switched on.
       const lateDeduction = isLate && storeSettings.lateDeductionEnabled
@@ -1032,7 +1062,11 @@ class PayrollService {
         transport,
         servicesWorked: servicesWorkedNames.length > 0 ? servicesWorkedNames.join(", ") : "—",
         revenueShare: dayRevenueShare,
-        clockInAt: attendanceRecord?.firstClockInAt?.toISOString() ?? null,
+        // The day's first arrival, wherever it was.
+        clockInAt: dayRecords
+          .map(a => a.firstClockInAt)
+          .filter((t): t is Date => !!t)
+          .sort((x, y) => x.getTime() - y.getTime())[0]?.toISOString() ?? null,
         isLate,
         lateDeduction,
       });
