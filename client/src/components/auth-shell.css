@@ -4,7 +4,7 @@
 .ks { display: flex; flex-direction: column; min-height: 100vh; background: var(--kp-surface); }
 .ks-side { display: none; }
 .ks-main { display: flex; flex-direction: column; flex: 1; }
-.ks-top { display: flex; align-items: center; justify-content: space-between; min-height: calc(68px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); border-bottom: 1px solid var(--kp-line); }
+.ks-top { position: sticky; top: 0; z-index: 40; background: var(--kp-surface); display: flex; align-items: center; justify-content: space-between; min-height: calc(68px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); border-bottom: 1px solid var(--kp-line); }
 .ks-top a:first-child { display: inline-flex; align-items: center; min-height: 44px; }
 .ks-top-link { display: inline-flex; align-items: center; min-height: 44px; font-weight: 600; font-size: 15px; color: var(--kp-accent); }
 .ks-body { flex: 1; width: 100%; max-width: 424px; margin: 0 auto; padding: 24px 16px 32px; }
