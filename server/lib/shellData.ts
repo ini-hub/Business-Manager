@@ -29,37 +29,71 @@ type AuthedReq = Request & { user?: any };
 export async function loadAuthUser(req: AuthedReq): Promise<Record<string, unknown> | null> {
   const userId = req.user?.userId || req.user?.id;
   if (!userId) return null;
-  const user = await storage.getUser(userId);
-  if (!user) return null;
-
-  const orgId = req.user.organisationId || user.businessId;
+  // The session names the active business, so the user, business, membership and staff lookups are
+  // independent and go out together: one round trip instead of two in sequence. Only a session with no
+  // organisation (a pre-selection login) has to read the user first to learn its default business.
+  const sessionOrgId: string | undefined = req.user.organisationId;
+  let user: any;
+  let orgId: string | null | undefined = sessionOrgId;
   let business = null;
-  let activeRole = user.role;
+  let activeRole: string;
   let ownStaffRecord = null;
 
-  if (orgId) {
-    const [fetchedBusiness, member, staffRecord] = await Promise.all([
-      storage.getBusinessById(orgId),
-      storage.getOrganisationMember(user.id, orgId),
+  if (sessionOrgId) {
+    const [fetchedUser, fetchedBusiness, member, staffRecord] = await Promise.all([
+      storage.getUser(userId),
+      storage.getBusinessById(sessionOrgId),
+      storage.getOrganisationMember(userId, sessionOrgId),
       // The staff record in the active business, never one from another business the person also works in.
-      storage.getStaffByUserInBusiness(user.id, orgId),
+      storage.getStaffByUserInBusiness(userId, sessionOrgId),
     ]);
+    if (!fetchedUser) return null;
+    user = fetchedUser;
     business = fetchedBusiness;
     ownStaffRecord = staffRecord;
-    if (member) activeRole = member.role;
+    activeRole = member ? member.role : user.role;
   } else {
-    ownStaffRecord = await storage.getStaffByUserId(user.id);
+    user = await storage.getUser(userId);
+    if (!user) return null;
+    orgId = user.businessId;
+    activeRole = user.role;
+    if (orgId) {
+      const [fetchedBusiness, member, staffRecord] = await Promise.all([
+        storage.getBusinessById(orgId),
+        storage.getOrganisationMember(user.id, orgId),
+        storage.getStaffByUserInBusiness(user.id, orgId),
+      ]);
+      business = fetchedBusiness;
+      ownStaffRecord = staffRecord;
+      if (member) activeRole = member.role;
+    } else {
+      ownStaffRecord = await storage.getStaffByUserId(user.id);
+    }
   }
 
+  return buildAuthUserPayload(user, {
+    orgId,
+    business,
+    role: activeRole,
+    staffId: ownStaffRecord?.id ?? null,
+    impersonating: !!req.user.impersonatedBy,
+  });
+}
+
+/** Shapes a user row into the /api/auth/user payload (credentials and OTP state stripped). */
+export function buildAuthUserPayload(
+  user: any,
+  ctx: { orgId: string | null | undefined; business: unknown; role: string; staffId: string | null; impersonating?: boolean },
+): Record<string, unknown> {
   return {
     ...user,
     id: user.id,
     email: user.email || user.phone || "",
-    role: activeRole,
-    businessId: orgId,
-    business,
-    staffId: ownStaffRecord?.id ?? null,
-    impersonating: req.user.impersonatedBy ? true : undefined,
+    role: ctx.role,
+    businessId: ctx.orgId,
+    business: ctx.business,
+    staffId: ctx.staffId,
+    impersonating: ctx.impersonating ? true : undefined,
     password: undefined,
     passwordHash: undefined,
     otpCode: undefined,
@@ -71,6 +105,22 @@ export async function loadAuthUser(req: AuthedReq): Promise<Record<string, unkno
     pendingPhoneOtp: undefined,
     pendingPhoneOtpExpiry: undefined,
   };
+}
+
+/**
+ * The /api/auth/user payload for a session that was just issued, built from rows the sign-in handler
+ * already read (user, business, membership) plus one staff lookup. Returned in the sign-in response so the
+ * client seeds its cache instead of waiting on a second round of requests. Null on any failure: the client
+ * then falls back to refetching /api/auth/user, so this can never break a sign-in.
+ */
+export async function buildSessionAuthUser(user: any, business: unknown, member: { organisationId?: string; role: string }, orgId: string): Promise<Record<string, unknown> | null> {
+  try {
+    const staffRecord = await storage.getStaffByUserInBusiness(user.id, orgId);
+    return buildAuthUserPayload(user, { orgId, business, role: member.role, staffId: staffRecord?.id ?? null });
+  } catch (err) {
+    console.warn("[auth] could not pre-build session user:", (err as Error).message);
+    return null;
+  }
 }
 
 /** The active business as /api/business returns it (with the viewer's mask policy), or null. */

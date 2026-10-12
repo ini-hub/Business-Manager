@@ -107,15 +107,14 @@ export class SalesRepository {
 
   // ─── Profit & Loss ────────────────────────────────────────────────────────
   async getProfitLoss(storeId: string): Promise<ProfitLossWithInventory[]> {
-    const plRecords = await db.select().from(profitLoss).where(eq(profitLoss.storeId, storeId));
-    const result: ProfitLossWithInventory[] = [];
-
-    for (const pl of plRecords) {
-      const [inventoryItem] = await db.select().from(inventory).where(eq(inventory.id, pl.inventoryId));
-      result.push({ ...pl, inventory: inventoryItem });
-    }
-
-    return result;
+    // One joined read. This used to select the inventory row for each P&L row separately, so a store with
+    // 300 products cost 301 round trips on the P&L page.
+    const rows = await db
+      .select({ pl: profitLoss, inventoryItem: inventory })
+      .from(profitLoss)
+      .leftJoin(inventory, eq(inventory.id, profitLoss.inventoryId))
+      .where(eq(profitLoss.storeId, storeId));
+    return rows.map(({ pl, inventoryItem }) => ({ ...pl, inventory: inventoryItem as any }));
   }
 
   async updateProfitLoss(inventoryId: string, storeId: string): Promise<void> {

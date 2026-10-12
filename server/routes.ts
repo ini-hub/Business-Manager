@@ -14,7 +14,7 @@ import { registerContractRoutes } from "./routes/contract.routes";
 import { registerProfileCompletionRoutes } from "./routes/profile-completion.routes";
 import { registerGuarantorRoutes } from "./routes/guarantor.routes";
 import { registerLegalRoutes } from "./routes/legal.routes";
-import { loadAuthUser } from "./lib/shellData";
+import { loadAuthUser, buildSessionAuthUser } from "./lib/shellData";
 import { registerEmailWebhookRoutes } from "./routes/email-webhooks.routes";
 import { registerWhatsAppWebhookRoutes } from "./routes/whatsapp-webhooks.routes";
 import { registerCustomerBookingRoutes } from "./routes/customer-booking.routes";
@@ -907,6 +907,7 @@ export async function registerRoutes(
         message: "Login successful.",
         user: sessionUser,
         business: org,
+        authUser: await buildSessionAuthUser(user, org, member, organisationId),
       });
     } catch (error) {
       console.error("Organisation selection error:", error);

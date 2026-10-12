@@ -27,6 +27,25 @@ export default function Login() {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
 
+  // Leave /auth/login only once the session user is in the cache. The cached
+  // /api/auth/user is null (staleTime Infinity) until then, so navigating to
+  // "/" straight away rendered the Landing page for as long as a refetch took,
+  // instead of the business. The sign-in response carries the same payload
+  // (`authUser`), which makes this instant; without it (older server, or the
+  // server could not build it) fall back to awaiting the refetch. Org-scoped
+  // queries are reset so stale data from a previous org/session can't race the
+  // onboarding-redirect guard.
+  const enterApp = async (authUser?: unknown) => {
+    queryClient.resetQueries({ queryKey: ["/api/stores"] });
+    queryClient.resetQueries({ queryKey: ["/api/business"] });
+    if (authUser) {
+      queryClient.setQueryData(["/api/auth/user"], authUser);
+    } else {
+      await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
+    }
+    setLocation("/");
+  };
+
   // Sent here by handleSessionExpired (lib/queryClient.ts) when the session ended mid-use.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -237,7 +256,7 @@ export default function Login() {
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.status === "email_change_verification_required") {
         setStep("verify_email_change");
         toast({
@@ -293,13 +312,7 @@ export default function Login() {
           title: "Welcome back!",
           description: data.message,
         });
-        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-        // Reset (not just invalidate) org-scoped queries cached under global
-        // keys - stale data from a previous org/session would otherwise
-        // render immediately and race the onboarding-redirect guard.
-        queryClient.resetQueries({ queryKey: ["/api/stores"] });
-        queryClient.resetQueries({ queryKey: ["/api/business"] });
-        setLocation("/");
+        await enterApp(data.authUser);
       }
     },
     onError: (error: Error) => {
@@ -320,15 +333,12 @@ export default function Login() {
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast({
         title: "Logged in successfully",
         description: data.message,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      queryClient.resetQueries({ queryKey: ["/api/stores"] });
-      queryClient.resetQueries({ queryKey: ["/api/business"] });
-      setLocation("/");
+      await enterApp(data.authUser);
     },
     onError: (error: Error) => {
       const errorMsg = error.message || "Business entry failed.";
@@ -378,7 +388,7 @@ export default function Login() {
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.nextStep === "legal-consent") {
         setStep("legal_consent");
         toast({
@@ -407,10 +417,7 @@ export default function Login() {
         title: "Password Set Successfully!",
         description: "Welcome to Kowope.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      queryClient.resetQueries({ queryKey: ["/api/stores"] });
-      queryClient.resetQueries({ queryKey: ["/api/business"] });
-      setLocation("/");
+      await enterApp();
     },
     onError: (error: Error) => {
       toast({
@@ -443,7 +450,7 @@ export default function Login() {
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.nextStep === "complete-profile") {
         toast({
           title: "Contract signed!",
@@ -456,10 +463,7 @@ export default function Login() {
         title: "Contract signed!",
         description: "Welcome to Kowope.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      queryClient.resetQueries({ queryKey: ["/api/stores"] });
-      queryClient.resetQueries({ queryKey: ["/api/business"] });
-      setLocation("/");
+      await enterApp();
     },
     onError: (error: Error) => {
       // The manager replaced the contract while it was open: show the new one.
@@ -502,7 +506,7 @@ export default function Login() {
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       // Consent might unblock straight into a normal session, or into a
       // further step (multiple workspaces to choose from, or a staff
       // contract also pending) - the same shapes loginMutation/
@@ -537,10 +541,7 @@ export default function Login() {
         title: "Thanks!",
         description: "Your acceptance has been recorded. Welcome to Kowope.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      queryClient.resetQueries({ queryKey: ["/api/stores"] });
-      queryClient.resetQueries({ queryKey: ["/api/business"] });
-      setLocation("/");
+      await enterApp();
     },
     onError: (error: any) => {
       if (error.code === "LEGAL_DOCUMENTS_STALE") {
@@ -621,7 +622,7 @@ export default function Login() {
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       if (data.requiresOrganisationSelection) {
         setOrgs(data.organisations);
         setOrgSelectToken(data.orgSelectToken);
@@ -636,10 +637,7 @@ export default function Login() {
         title: "Email Verified!",
         description: "Welcome back to Kowope.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      queryClient.resetQueries({ queryKey: ["/api/stores"] });
-      queryClient.resetQueries({ queryKey: ["/api/business"] });
-      setLocation("/");
+      await enterApp();
     },
     onError: (error: Error & { code?: string; attemptsLeft?: number }) => {
       setOtpIssue({

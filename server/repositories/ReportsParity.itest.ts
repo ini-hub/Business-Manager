@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { db } from "../db";
 import { eq, and, sql } from "drizzle-orm";
-import { inventory, products, checkouts, orders, cashRegisterSessions } from "@shared/schema";
+import { inventory, products, checkouts, orders, cashRegisterSessions, customers, staff, transactions } from "@shared/schema";
 import { storage } from "../storage";
+import { runWithRequestStats } from "../lib/queryCounter";
 import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import {
   assertTestDatabase, ensureSchema, createFixture, sweepResidue, closePool, type Fixture,
@@ -209,4 +210,70 @@ describe("dashboard stock figures", () => {
     close(got.totalRevenue, pl.totalRevenue);
     close(got.totalProfit, pl.grossProfit);
   });
+});
+
+// The merged counts statement against the straightforward per-table queries it replaced.
+async function legacyCounts(startDate?: string, endDate?: string) {
+  const tz = await getStoreTimezone(f.storeId);
+  const { gte, lte } = await import("drizzle-orm");
+  const conds: any[] = [eq(checkouts.storeId, f.storeId), eq(checkouts.isVoided, false), eq(checkouts.paymentStatus, "completed")];
+  if (startDate) conds.push(gte(checkouts.createdAt, toUtcStart(startDate, tz)));
+  if (endDate) conds.push(lte(checkouts.createdAt, toUtcEnd(endDate, tz)));
+  const cks = await db.select().from(checkouts).where(and(...conds));
+  const txs = await db.select({ customerId: transactions.customerId }).from(transactions)
+    .innerJoin(checkouts, eq(checkouts.id, transactions.checkoutId)).where(and(...conds));
+  const lossy = cks.filter((c: any) => Number(c.lossAmount) > 0);
+  return {
+    totalCustomers: (await db.select().from(customers).where(eq(customers.storeId, f.storeId))).length,
+    totalStaff: (await db.select().from(staff).where(eq(staff.storeId, f.storeId))).length,
+    totalTransactions: cks.length,
+    uniqueCustomersInPeriod: new Set(txs.map((t) => t.customerId)).size,
+    lossCount: new Set(lossy.map((c: any) => c.receiptNumber)).size,
+    lossAmount: lossy.reduce((n: number, c: any) => n + Number(c.lossAmount), 0),
+  };
+}
+
+describe("dashboard counts", () => {
+  for (const [label, range] of [["all time", [undefined, undefined]], ["today", [new Date().toISOString().slice(0, 10), new Date().toISOString().slice(0, 10)]], ["a past window", ["2020-01-01", "2020-01-31"]]] as const) {
+    it(`matches the per-table counts: ${label}`, async () => {
+      const got = await storage.getDashboardStats(f.storeId, range[0], range[1]);
+      const want = await legacyCounts(range[0], range[1]);
+      expect(got.totalCustomers).toBe(want.totalCustomers);
+      expect(got.totalStaff).toBe(want.totalStaff);
+      expect(got.totalTransactions).toBe(want.totalTransactions);
+      expect(got.uniqueCustomersInPeriod).toBe(want.uniqueCustomersInPeriod);
+      expect(got.lossSales.count).toBe(want.lossCount);
+      close(got.lossSales.amount, want.lossAmount);
+    });
+  }
+
+  it("is not vacuous: the fixture has customers, sales and a customer who bought", async () => {
+    const got = await storage.getDashboardStats(f.storeId);
+    expect(got.totalCustomers).toBeGreaterThan(0);
+    expect(got.totalTransactions).toBeGreaterThan(0);
+    expect(got.uniqueCustomersInPeriod).toBeGreaterThan(0);
+  });
+});
+
+describe("dashboard and P&L statement budget", () => {
+  // Each statement is a round trip that also holds one of the 10 pool connections, so these are the
+  // numbers that decide whether one page load starves every other request. Raise only with a reason.
+  it("loads dashboard stats in few statements", async () => {
+    const stats = { queries: 0 };
+    const got = await runWithRequestStats(stats, () => storage.getDashboardStats(f.storeId));
+    // counts (1) + stock alerts (1) + P&L summary (<=5) + revenue mix (1) + timezone/settings, was 27.
+    expect(stats.queries).toBeLessThanOrEqual(12);
+    // The merged counts statement must still report real figures, not zeros.
+    expect(got.totalCustomers).toBeGreaterThanOrEqual(0);
+    expect(got.totalTransactions).toBeGreaterThan(0);
+    expect(got.totalStaff).toBeGreaterThanOrEqual(0);
+    expect(got.totalInventory).toBeGreaterThan(0);
+  }, 120_000);
+
+  it("loads the P&L list in a constant number of statements and with its inventory rows", async () => {
+    const stats = { queries: 0 };
+    const rows = await runWithRequestStats(stats, () => storage.getProfitLoss(f.storeId));
+    expect(stats.queries).toBeLessThanOrEqual(2);
+    for (const r of rows) expect(r.inventory?.id).toBe(r.inventoryId);
+  }, 120_000);
 });

@@ -5,6 +5,7 @@ import { issueSession } from "./authSessions";
 import { staffContractService } from "../services/StaffContractService";
 import { isHrProfileComplete } from "./hrProfileGate";
 import { broadcastDataChange } from "../websocket";
+import { buildSessionAuthUser } from "./shellData";
 
 /**
  * The "resolve org membership(s) -> org_select or issue jwt_token" tail of
@@ -159,6 +160,7 @@ export async function completeLoginForUser(user: any, req: Request, res: Respons
     message: "Login successful.",
     user: sessionUser,
     business: org,
+    authUser: await buildSessionAuthUser(user, org, activeMember, activeMember.organisationId),
   });
 }
 
