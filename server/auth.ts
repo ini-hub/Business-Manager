@@ -313,19 +313,26 @@ function isOrgLockExempt(path: string): boolean {
 // that to one lookup per org per window instead of two per request. A suspension
 // or billing change takes effect within the TTL (same trade-off as isSessionActive).
 const ORG_ACCESS_TTL_MS = 15_000;
-const orgAccessCache = new Map<string, { at: number; value: { business: NonNullable<Awaited<ReturnType<typeof storage.getBusinessById>>>; subscription: typeof subscriptions.$inferSelect | null } | null }>();
+type OrgAccessRecord = { business: NonNullable<Awaited<ReturnType<typeof storage.getBusinessById>>>; subscription: typeof subscriptions.$inferSelect | null } | null;
+// Holds the in-flight promise, so the burst of parallel requests a page load fires shares one lookup
+// instead of each paying for its own (the cache used to be filled only after the first one finished).
+const orgAccessCache = new Map<string, { at: number; value: Promise<OrgAccessRecord> }>();
 
-async function loadOrgAccessRecord(orgId: string) {
+async function readOrgAccessRecord(orgId: string): Promise<OrgAccessRecord> {
+  const business = await storage.getBusinessById(orgId);
+  if (!business) return null;
+  const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.organisationId, business.id));
+  return { business, subscription: subscription ?? null };
+}
+
+function loadOrgAccessRecord(orgId: string): Promise<OrgAccessRecord> {
   const hit = orgAccessCache.get(orgId);
   if (hit && Date.now() - hit.at < ORG_ACCESS_TTL_MS) return hit.value;
-  const business = await storage.getBusinessById(orgId);
-  let value: NonNullable<typeof hit>["value"] = null;
-  if (business) {
-    const [subscription] = await db.select().from(subscriptions).where(eq(subscriptions.organisationId, business.id));
-    value = { business, subscription: subscription ?? null };
-  }
-  orgAccessCache.set(orgId, { at: Date.now(), value });
-  return value;
+  const entry = { at: Date.now(), value: readOrgAccessRecord(orgId) };
+  orgAccessCache.set(orgId, entry);
+  // A failed lookup is never kept: the next request retries.
+  entry.value.catch(() => { if (orgAccessCache.get(orgId) === entry) orgAccessCache.delete(orgId); });
+  return entry.value;
 }
 
 /** Drops a cached org so the next request re-reads it (call after suspending or changing billing). */

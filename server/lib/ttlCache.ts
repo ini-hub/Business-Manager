@@ -19,7 +19,9 @@ export function createTtlCache<K, V>(ttlMs: number): TtlCache<K, V> {
       if (DISABLED || ttlMs <= 0) return load();
       const hit = entries.get(key);
       if (hit && Date.now() - hit.at < ttlMs) return hit.value;
-      const value = load();
+      // Drizzle query builders are lazy thenables that run the query again on every await (and on .catch below).
+      // Settle the loader into a real promise once, so the cache holds a result and not a re-runnable query.
+      const value = (async () => load())();
       const entry = { at: Date.now(), value };
       entries.set(key, entry);
       // Never keep a failure around: the next caller should retry rather than reuse a rejected promise.

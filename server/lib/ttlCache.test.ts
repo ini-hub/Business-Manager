@@ -21,6 +21,21 @@ describe("ttlCache", () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it("runs a lazy thenable loader (a drizzle query builder) once, not once per await", async () => {
+    const { createTtlCache } = await loadEnabled();
+    const cache = createTtlCache<string, number>(1000);
+    let executions = 0;
+    // Like a drizzle query: nothing runs until then(), and every then() runs it again.
+    const lazy = () => ({
+      then: (ok: (v: number) => unknown, bad?: (e: unknown) => unknown) => Promise.resolve(++executions).then(ok, bad),
+      catch(bad: (e: unknown) => unknown) { return this.then((v) => v, bad); },
+    }) as unknown as Promise<number>;
+    expect(await cache.get("k", lazy)).toBe(1);
+    expect(await cache.get("k", lazy)).toBe(1);
+    expect(await Promise.all([cache.get("k", lazy), cache.get("k", lazy)])).toEqual([1, 1]);
+    expect(executions).toBe(1);
+  });
+
   it("reloads after invalidate", async () => {
     const { createTtlCache } = await loadEnabled();
     const cache = createTtlCache<string, number>(1000);
