@@ -7,6 +7,7 @@ import {
   attendanceRecords,
 } from "@shared/schema";
 import { storage } from "../storage";
+import { loadScopeStoreIds } from "./payroll/scope";
 
 /**
  * Turns a flagged-late day into a visible, forgivable payroll deduction.
@@ -65,9 +66,13 @@ class LateArrivalDeductionService {
       return;
     }
 
+    // A late day at ANY store these people are assigned to is charged by their home payroll, at the home
+    // store's amount (read above). A day is late at most once (AttendanceService judges only the first
+    // clock-in of the day) and the Set below dedupes by date regardless.
+    const scopeStoreIds = await loadScopeStoreIds(period.storeId, staffIds);
     const lateByStaff = new Map<string, Set<string>>();
     const records = await db.select().from(attendanceRecords).where(and(
-      eq(attendanceRecords.storeId, period.storeId),
+      inArray(attendanceRecords.storeId, scopeStoreIds),
       inArray(attendanceRecords.staffId, staffIds),
       gte(attendanceRecords.date, period.startDate),
       lte(attendanceRecords.date, period.endDate),
