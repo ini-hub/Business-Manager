@@ -96,3 +96,22 @@ describe("evaluateLateness", () => {
     expect(verdict.lateMinutes).toBe(5);
   });
 });
+
+import { isFirstClockInOfDay } from "./lateness";
+
+describe("isFirstClockInOfDay", () => {
+  const at = (iso: string) => new Date(iso);
+  it("is the first when there is no other clock-in that day", () => {
+    expect(isFirstClockInOfDay(at("2026-06-10T09:00:00Z"), null)).toBe(true);
+    expect(isFirstClockInOfDay(at("2026-06-10T09:00:00Z"), undefined)).toBe(true);
+  });
+  it("is not the first when another store already has an earlier clock-in", () => {
+    expect(isFirstClockInOfDay(at("2026-06-10T13:00:00Z"), at("2026-06-10T08:00:00Z"))).toBe(false);
+  });
+  it("is the first when it is earlier than a clock-in recorded at another store (offline replay)", () => {
+    expect(isFirstClockInOfDay(at("2026-06-10T07:50:00Z"), at("2026-06-10T08:00:00Z"))).toBe(true);
+  });
+  it("a tie goes to the clock-in already recorded", () => {
+    expect(isFirstClockInOfDay(at("2026-06-10T08:00:00Z"), at("2026-06-10T08:00:00Z"))).toBe(false);
+  });
+});

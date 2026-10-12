@@ -4,7 +4,7 @@ import { getStoreTimezone, storeLocalDate } from "../lib/dateUtils";
 import { haversineMeters, isValidLatitude, isValidLongitude } from "@shared/geo";
 import { AttendancePunchRepository } from "../repositories/AttendancePunchRepository";
 import { AttendanceRepository } from "../repositories/AttendanceRepository";
-import { evaluateLateness } from "./attendance/lateness";
+import { evaluateLateness, isFirstClockInOfDay } from "./attendance/lateness";
 import { resolvePunchTime } from "./attendance/punchTime";
 import { detectSharedDevice, detectRapidSuccession } from "./attendance/collusion";
 import { buildScheduleResolver, exceptionKey } from "./attendance/scheduleResolver";
@@ -154,7 +154,7 @@ class AttendanceService {
     const effectiveAt = input.effectiveAtOverride ?? timing.effectiveAt;
     const localDate = storeLocalDate(effectiveAt, timezone);
 
-    const duplicate = await this.punchRepo.findDayPunch(input.staffId, localDate, input.kind);
+    const duplicate = await this.punchRepo.findDayPunch(input.staffId, input.storeId, localDate, input.kind);
     if (duplicate) {
       return {
         ok: false,
@@ -167,7 +167,7 @@ class AttendanceService {
     }
 
     if (input.kind === "clock_out") {
-      const clockIn = await this.punchRepo.findDayPunch(input.staffId, localDate, "clock_in");
+      const clockIn = await this.punchRepo.findDayPunch(input.staffId, input.storeId, localDate, "clock_in");
       if (!clockIn) {
         return { ok: false, status: 409, code: "no_clock_in", message: "There is no clock-in to close for today." };
       }
@@ -188,13 +188,23 @@ class AttendanceService {
       deviceRevoked = !!device.revokedAt;
     }
 
+    // Lateness is judged once per day, on the first clock-in at any store. A person who has already
+    // clocked in at another store today is moving between stores, not arriving, so this one is never late.
+    let earlierOtherClockIn: AttendancePunch | undefined;
+    let isFirstOfDay = true;
+    if (input.kind === "clock_in") {
+      earlierOtherClockIn = await this.punchRepo.findEarliestClockInOnDay(input.staffId, localDate);
+      isFirstOfDay = isFirstClockInOfDay(effectiveAt, earlierOtherClockIn?.effectiveAt);
+    }
     const lateness = input.kind === "clock_in"
-      ? evaluateLateness({
-          effectiveAt,
-          timezone,
-          openingTime: settings.openingTime,
-          graceMinutes: settings.lateGraceMinutes,
-        })
+      ? (isFirstOfDay
+          ? evaluateLateness({
+              effectiveAt,
+              timezone,
+              openingTime: settings.openingTime,
+              graceMinutes: settings.lateGraceMinutes,
+            })
+          : { localDate, isLate: false, lateMinutes: 0, expectedMinuteOfDay: null })
       : null;
 
     let punch: AttendancePunch;
@@ -263,7 +273,16 @@ class AttendanceService {
         expectedStartTime: settings.openingTime ?? null,
         markedByUserId: input.recordedByUserId ?? null,
       });
-      await gamificationRepository.recordAttendancePunch(input.storeId, input.staffId, !lateness.isLate);
+      // A replayed offline punch can turn out to be earlier than a clock-in already recorded at another
+      // store: this one is then the day's first arrival, and the other store's late flag must go so a day
+      // is late at most once.
+      if (earlierOtherClockIn && isFirstOfDay) {
+        await this.recordRepo.clearLateFlag(earlierOtherClockIn.storeId, input.staffId, localDate);
+      }
+      // One on-time/late point per day, for the day's first arrival.
+      if (isFirstOfDay) {
+        await gamificationRepository.recordAttendancePunch(input.storeId, input.staffId, !lateness.isLate);
+      }
     } else {
       await this.recordRepo.applyClockOut(input.storeId, input.staffId, localDate, effectiveAt);
     }
@@ -403,7 +422,7 @@ class AttendanceService {
     const localDate = storeLocalDate(new Date(), timezone);
 
     const [punches, record, schedules, exceptions] = await Promise.all([
-      this.punchRepo.getPunchesForStaffDay(staffId, localDate),
+      this.punchRepo.getPunchesForStaffDay(staffId, storeId, localDate),
       this.recordRepo.getAttendanceRecord(storeId, staffId, localDate),
       storage.getStaffSchedules(storeId),
       storage.getStaffScheduleExceptions(storeId, localDate, localDate),

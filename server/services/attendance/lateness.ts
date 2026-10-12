@@ -15,6 +15,17 @@ export type LatenessVerdict = {
   expectedMinuteOfDay: number | null;
 };
 
+/**
+ * Lateness is judged once per day, on the person's first clock-in, wherever that happens. A later
+ * clock-in at another store the same day (a person who works two stores) is a transfer, not an arrival, and
+ * is never late. `earliestOtherClockInAt` is the earliest clock-in the person already has that day at any
+ * other store, or null. A tie goes to the clock-in already recorded.
+ */
+export function isFirstClockInOfDay(effectiveAt: Date, earliestOtherClockInAt: Date | null | undefined): boolean {
+  if (!earliestOtherClockInAt) return true;
+  return effectiveAt.getTime() < earliestOtherClockInAt.getTime();
+}
+
 export function evaluateLateness(input: {
   effectiveAt: Date;
   timezone: string;

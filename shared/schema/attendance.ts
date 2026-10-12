@@ -56,7 +56,8 @@ export const attendancePunches = pgTable("attendance_punches", {
   index("idx_attendance_punches_store_date").on(table.storeId, table.localDate),
   index("idx_attendance_punches_staff_date").on(table.staffId, table.localDate),
   uniqueIndex("attendance_punch_client_id_unique").on(table.staffId, table.clientPunchId),
-  uniqueIndex("attendance_punch_day_kind_unique").on(table.staffId, table.localDate, table.kind),
+  // One clock-in and one clock-out per person per store per day (migrations/0131); voided punches are excluded.
+  uniqueIndex("attendance_punch_store_day_kind_unique").on(table.staffId, table.storeId, table.localDate, table.kind).where(sql`${table.voidedAt} IS NULL`),
 ]);
 
 export const attendancePunchesRelations = relations(attendancePunches, ({ one }) => ({
@@ -120,7 +121,7 @@ export const attendanceRetroRequests = pgTable("attendance_retro_requests", {
   createdPunchId: varchar("created_punch_id").references(() => attendancePunches.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
-  uniqueIndex("attendance_retro_request_pending_unique").on(table.staffId, table.date),
+  uniqueIndex("attendance_retro_request_store_pending_unique").on(table.staffId, table.storeId, table.date).where(sql`${table.status} = 'pending'`),
   index("idx_attendance_retro_requests_store_status").on(table.storeId, table.status),
 ]);
 

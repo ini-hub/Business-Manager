@@ -28,9 +28,11 @@ export class AttendancePunchRepository {
     return row;
   }
 
-  async findDayPunch(staffId: string, localDate: string, kind: string): Promise<AttendancePunch | undefined> {
+  /** One punch of a kind per person per STORE per day (migration 0131). */
+  async findDayPunch(staffId: string, storeId: string, localDate: string, kind: string): Promise<AttendancePunch | undefined> {
     const [row] = await db.select().from(attendancePunches).where(and(
       eq(attendancePunches.staffId, staffId),
+      eq(attendancePunches.storeId, storeId),
       eq(attendancePunches.localDate, localDate),
       eq(attendancePunches.kind, kind),
       isNull(attendancePunches.voidedAt),
@@ -38,9 +40,24 @@ export class AttendancePunchRepository {
     return row;
   }
 
-  async getPunchesForStaffDay(staffId: string, localDate: string): Promise<AttendancePunch[]> {
+  /**
+   * The person's earliest live clock-in on a local date at ANY store: the one that decides whether the day
+   * is late. Callers have already rejected a duplicate at their own store, so this is another store's.
+   */
+  async findEarliestClockInOnDay(staffId: string, localDate: string): Promise<AttendancePunch | undefined> {
+    const [row] = await db.select().from(attendancePunches).where(and(
+      eq(attendancePunches.staffId, staffId),
+      eq(attendancePunches.localDate, localDate),
+      eq(attendancePunches.kind, "clock_in"),
+      isNull(attendancePunches.voidedAt),
+    )).orderBy(asc(attendancePunches.effectiveAt)).limit(1);
+    return row;
+  }
+
+  async getPunchesForStaffDay(staffId: string, storeId: string, localDate: string): Promise<AttendancePunch[]> {
     return await db.select().from(attendancePunches).where(and(
       eq(attendancePunches.staffId, staffId),
+      eq(attendancePunches.storeId, storeId),
       eq(attendancePunches.localDate, localDate),
       isNull(attendancePunches.voidedAt),
     )).orderBy(asc(attendancePunches.effectiveAt));

@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { stores, settings as settingsTable, staff as staffTable } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { stores, settings as settingsTable, staff as staffTable, attendanceRecords } from "@shared/schema";
+import { eq, and, ne, inArray } from "drizzle-orm";
 import { storage } from "../storage";
 import { getStoreTimezone, storeLocalDate } from "../lib/dateUtils";
 import { AttendancePunchRepository } from "../repositories/AttendancePunchRepository";
@@ -36,7 +36,7 @@ export function previousLocalDate(today: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function closeStoreDay(storeId: string): Promise<{ closed: number; marked: number } | null> {
+export async function closeStoreDay(storeId: string): Promise<{ closed: number; marked: number } | null> {
   const [config] = await db.select().from(settingsTable).where(eq(settingsTable.storeId, storeId)).limit(1);
   if (!config?.clockInEnabled) return null;
 
@@ -75,8 +75,21 @@ async function closeStoreDay(storeId: string): Promise<{ closed: number; marked:
     exceptionsByStaffDate: new Map(exceptions.map(e => [exceptionKey(e.staffId, e.date), e.kind as "off" | "working"])),
   });
 
+  // A person who worked at another store they are assigned to has a day record there; writing "absent" at
+  // their home store as well would be a misleading mark (payroll counts the day once, present at either).
+  const candidateIds = activeStaff.filter(s => !haveRecord.has(s.id)).map(s => s.id);
+  const recordedElsewhere = new Set<string>();
+  if (candidateIds.length > 0) {
+    const elsewhere = await db.select({ staffId: attendanceRecords.staffId }).from(attendanceRecords).where(and(
+      inArray(attendanceRecords.staffId, candidateIds),
+      eq(attendanceRecords.date, yesterday),
+      ne(attendanceRecords.storeId, storeId),
+    ));
+    for (const r of elsewhere) recordedElsewhere.add(r.staffId);
+  }
+
   const missing = activeStaff
-    .filter(s => !haveRecord.has(s.id))
+    .filter(s => !haveRecord.has(s.id) && !recordedElsewhere.has(s.id))
     .map(s => ({
       storeId,
       staffId: s.id,
