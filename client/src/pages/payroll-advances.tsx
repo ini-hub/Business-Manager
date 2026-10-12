@@ -7,9 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { ListControls } from "@/components/list-controls";
 import { MetricRow } from "@/components/metric-row";
@@ -32,6 +30,7 @@ import { ExportToolbar } from "@/components/export-toolbar";
 import { runBulkFanOut } from "@/lib/bulk-actions";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchAllStaff } from "@/lib/staff-api";
+import { AdvanceStatusBadge } from "@/components/advance-status-badge";
 
 const advanceCardAvatar = (a: { staffName?: string }) => (
   <Avatar className="h-10 w-10">
@@ -50,11 +49,6 @@ export default function PayrollAdvancesPage() {
   const currency = currentStore?.currency || "NGN";
   const fmt = (v: number) => formatCurrency(v, currency);
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [staffId, setStaffId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
-  const [notes, setNotes] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [filters, setFilters] = useState<AdvanceFilterState>(EMPTY_ADVANCE_FILTERS);
   const [sort, setSort] = useState<AdvanceSortState | null>(null);
@@ -74,22 +68,6 @@ export default function PayrollAdvancesPage() {
     queryKey: ["/api/payroll/advances", currentStore?.id],
     queryFn: () => fetchAllPages<any>(`/api/payroll/advances?storeId=${currentStore?.id}`),
     enabled: !!currentStore?.id && currentStore?.id !== "all",
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/payroll/advances", {
-        storeId: currentStore?.id, staffId, amount: parseFloat(amount), date, notes: notes || undefined,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      refetch();
-      setShowCreate(false);
-      setStaffId(""); setAmount(""); setDate(new Date().toISOString().split("T")[0]); setNotes("");
-      toast({ title: "Salary advance recorded" });
-    },
-    onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
   });
 
   const deleteMutation = useMutation({
@@ -256,7 +234,7 @@ export default function PayrollAdvancesPage() {
       key: "staffName",
       header: "Staff",
       render: (a: any) => (
-        <EntityLink href={`/staffs/${a.staffId}/edit`} className="font-medium">
+        <EntityLink href={`/payroll/advances/${a.id}`} className="font-medium">
           {a.staffName}
         </EntityLink>
       ),
@@ -296,16 +274,7 @@ export default function PayrollAdvancesPage() {
       priority: 1 as const,
       header: "Status",
       render: (a: any) => {
-        const statusBadge = (() => {
-          if (a.isRecovered) return <Badge variant="outline" className="text-emerald-700 bg-emerald-50 dark:bg-emerald-950 border-emerald-200 gap-1"><Check className="h-3 w-3" /> Recovered</Badge>;
-          // Too big for one payroll period: part of it was already collected,
-          // the rest carries forward on this same advance and will be proposed
-          // again automatically.
-          if (a.recoveryStatus === "partial") return <Badge variant="outline" className="text-amber-700 bg-amber-50 dark:bg-amber-950 border-amber-200">Partial — {fmt(Number(a.outstandingBalance))} left</Badge>;
-          if (a.status === "rejected") return <Badge variant="outline" className="text-red-700 bg-red-50 dark:bg-red-950 border-red-200">Rejected</Badge>;
-          if (a.status === "approved") return <Badge variant="outline" className="text-blue-700 bg-blue-50 dark:bg-blue-950 border-blue-200">Approved</Badge>;
-          return <Badge variant="outline" className="text-amber-700 bg-amber-50 dark:bg-amber-950 border-amber-200">Pending Approval</Badge>;
-        })();
+        const statusBadge = <AdvanceStatusBadge advance={a} fmt={fmt} />;
 
         // recoveredPeriodId doubles as a pre-settlement reservation — set the
         // moment a payroll period proposes this advance, released only once
@@ -413,7 +382,7 @@ export default function PayrollAdvancesPage() {
               visibleData={visibleAdvanceRows as unknown as Record<string, unknown>[]}
               visiblePdfReport={visiblePdfReport}
             />
-            <Button onClick={() => setShowCreate(true)}>
+            <Button onClick={() => setLocation("/payroll/advances/new")}>
               <Plus className="h-4 w-4 lg:mr-2" />
               <span className="hidden lg:inline">Record Advance</span>
             </Button>
@@ -481,7 +450,7 @@ export default function PayrollAdvancesPage() {
             bulkActions={bulkActions}
             entityNoun={{ singular: "advance", plural: "advances" }}
             rowActions={rowActions}
-            onRowClick={(a: any) => setLocation(`/staffs/${a.staffId}/edit`)}
+            onRowClick={(a: any) => setLocation(`/payroll/advances/${a.id}`)}
             showCardChevron
             cardLayout="compact-grid"
             cardAvatar={advanceCardAvatar}
@@ -491,47 +460,6 @@ export default function PayrollAdvancesPage() {
             urlKey="advances"
           />
       </div>
-
-      <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Record Salary Advance</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Staff Member</Label>
-              <Select value={staffId} onValueChange={setStaffId}>
-                <SelectTrigger><SelectValue placeholder="Select staff…" /></SelectTrigger>
-                <SelectContent>
-                  {staffList.filter(s => !s.isArchived).map(s => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}{[s.staffNumber, s.mobileNumber].filter(Boolean).length ? ` (${[s.staffNumber, s.mobileNumber].filter(Boolean).join(" · ")})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Amount</Label>
-                <Input type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
-              </div>
-              <div className="space-y-2">
-                <Label>Date</Label>
-                <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Notes (optional)</Label>
-              <Input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Reason or reference…" />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-              <Button disabled={!staffId || !amount || createMutation.isPending} onClick={() => createMutation.mutate()}>
-                Record Advance
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={!!rejectTarget} onOpenChange={(open) => { if (!open) setRejectTarget(null); }}>
         <DialogContent>

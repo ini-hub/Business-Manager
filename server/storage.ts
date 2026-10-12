@@ -3,7 +3,7 @@ import {
   type Organisation,
   type InsertOrganisationMember,
   type OrganisationMember, staff, checkouts, users, attendanceRecords,
-  payrollPeriods, type Business,
+  payrollPeriods, payrollEntries, type Business,
   type InsertBusiness,
   type Store,
   type InsertStore, type Customer,
@@ -1723,18 +1723,97 @@ class DatabaseStorage implements IStorage {
    * through payroll. `recoveredPeriodId` is deliberately left alone: it names
    * the payroll period that recovered the advance, and there isn't one here.
    */
-  async markAdvanceRecovered(advanceId: string, reason: string): Promise<SalaryAdvance> {
-    const [row] = await db.update(salaryAdvances)
-      .set({
-        isRecovered: true,
-        recoveryStatus: "recovered",
-        outstandingBalance: 0,
-        manualRecoveryReason: reason,
-        manualRecoveredAt: new Date(),
-      })
-      .where(eq(salaryAdvances.id, advanceId))
-      .returning();
-    return row;
+  async markAdvanceRecovered(
+    advanceId: string,
+    reason: string,
+    opts: { refuseWhenInPayroll?: boolean } = {},
+  ): Promise<SalaryAdvance> {
+    return db.transaction(async (tx) => {
+      // Row lock: mark-paid settlement locks the same row, so a manual
+      // recovery can't interleave with a partial settle and wipe its state.
+      const [adv] = await tx.select().from(salaryAdvances)
+        .where(eq(salaryAdvances.id, advanceId)).for("update");
+      if (!adv) throw new Error("Advance not found.");
+      if (opts.refuseWhenInPayroll) {
+        if (adv.isRecovered) throw new Error("This advance has already been recovered.");
+        // Any unsettled line (waived or not) or a reservation to an unpaid
+        // period means payroll owns this advance until that period is paid.
+        const [live] = await tx.select({ id: payrollDeductions.id }).from(payrollDeductions).where(and(
+          eq(payrollDeductions.salaryAdvanceId, advanceId),
+          sql`${payrollDeductions.settledAt} IS NULL`,
+        ));
+        let reserved = false;
+        if (adv.recoveredPeriodId) {
+          const [p] = await tx.select({ status: payrollPeriods.status }).from(payrollPeriods)
+            .where(eq(payrollPeriods.id, adv.recoveredPeriodId));
+          reserved = !!p && p.status !== "paid";
+        }
+        if (live || reserved) {
+          throw new Error("This advance is on an open payroll period — it will be recovered automatically when that period is marked paid. Delete or restore that line first if you need to recover it outside payroll.");
+        }
+      }
+      const [row] = await tx.update(salaryAdvances)
+        .set({
+          isRecovered: true,
+          recoveryStatus: "recovered",
+          outstandingBalance: 0,
+          manualRecoveryReason: reason,
+          manualRecoveredAt: new Date(),
+        })
+        .where(eq(salaryAdvances.id, advanceId))
+        .returning();
+      return row;
+    });
+  }
+
+  /** Unpaid payroll periods in which this staff member has an entry. */
+  async getOpenPeriodIdsForStaff(storeId: string, staffId: string): Promise<string[]> {
+    const rows = await db.selectDistinct({ id: payrollPeriods.id })
+      .from(payrollPeriods)
+      .innerJoin(payrollEntries, eq(payrollEntries.periodId, payrollPeriods.id))
+      .where(and(
+        eq(payrollPeriods.storeId, storeId),
+        eq(payrollEntries.staffId, staffId),
+        sql`${payrollPeriods.status} <> 'paid'`,
+      ));
+    return rows.map((r) => r.id);
+  }
+
+  /** One advance with its list-row extras, staff name and payroll recovery lines. */
+  async getSalaryAdvanceDetail(id: string): Promise<any | undefined> {
+    const [r] = await db
+      .select({ advance: salaryAdvances, period: payrollPeriods, staffName: staff.name })
+      .from(salaryAdvances)
+      .leftJoin(payrollPeriods, eq(salaryAdvances.recoveredPeriodId, payrollPeriods.id))
+      .leftJoin(staff, eq(salaryAdvances.staffId, staff.id))
+      .where(eq(salaryAdvances.id, id));
+    if (!r) return undefined;
+    const [tz, lines] = await Promise.all([
+      getStoreTimezone(r.advance.storeId),
+      db.select({ deduction: payrollDeductions, period: payrollPeriods })
+        .from(payrollDeductions)
+        .innerJoin(payrollPeriods, eq(payrollDeductions.periodId, payrollPeriods.id))
+        .where(eq(payrollDeductions.salaryAdvanceId, id))
+        .orderBy(desc(payrollPeriods.startDate)),
+    ]);
+    const guard = canRestoreManualRecovery(r.advance, { now: new Date(), timezone: tz });
+    return {
+      ...r.advance,
+      staffName: r.staffName,
+      reservedPeriod: r.period && { id: r.period.id, startDate: r.period.startDate, endDate: r.period.endDate, status: r.period.status },
+      canRestoreManualRecovery: guard.allowed,
+      restoreManualRecoveryBlockedReason: guard.allowed ? null : guard.reason ?? null,
+      recoveries: lines.map((l) => ({
+        id: l.deduction.id,
+        periodId: l.period.id,
+        periodStart: l.period.startDate,
+        periodEnd: l.period.endDate,
+        periodStatus: l.period.status,
+        amount: l.deduction.amount,
+        settledAt: l.deduction.settledAt,
+        isWaived: l.deduction.isWaived,
+      })),
+    };
   }
 
   /**

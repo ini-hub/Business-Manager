@@ -512,3 +512,27 @@ describe("priority ordering against staff credit", () => {
     expect(Number(creditRows[0].amount)).toBe(8_000);
   });
 });
+
+describe("advance approved after the period was calculated", () => {
+  it("is found as an open period for the staff member, proposed on resync, and then refuses a manual recovery", async () => {
+    const f = await newFixture();
+    const period = await createPeriod(f.storeId, START, END);
+    const [pending] = await db.insert(salaryAdvances).values({
+      storeId: f.storeId, staffId: f.staffId, amount: 7_000, outstandingBalance: 7_000, date: "2099-01-05",
+      status: "pending", isRecovered: false,
+    }).returning();
+    await calculate(f.storeId, period.id);
+    expect(await advanceDeductionsFor(period.id)).toHaveLength(0);
+
+    await storage.updateSalaryAdvanceStatus(pending.id, "approved", undefined);
+    expect(await storage.getOpenPeriodIdsForStaff(f.storeId, f.staffId)).toContain(period.id);
+    await salaryAdvanceDeductionService.syncProposals(period.id);
+
+    const rows = await advanceDeductionsFor(period.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].salaryAdvanceId).toBe(pending.id);
+    await expect(
+      storage.markAdvanceRecovered(pending.id, "Repaid in cash", { refuseWhenInPayroll: true }),
+    ).rejects.toThrow(/open payroll period/);
+  });
+});
