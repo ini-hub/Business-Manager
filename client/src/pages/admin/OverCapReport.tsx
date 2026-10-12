@@ -7,13 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/loader";
+import { LIMITS, LIMIT_TYPES } from "@shared/limits";
 
-const LIMITS = [
-  { value: "staff_seats", label: "Staff seats" },
-  { value: "customer_count", label: "Customers" },
-  { value: "item_count", label: "Inventory items" },
-  { value: "store_count", label: "Stores" },
-];
+const LIMIT_OPTIONS = LIMIT_TYPES.map((t) => ({ value: t, label: LIMITS[t].adminLabel }));
 
 interface Row {
   organisationId: string;
@@ -59,7 +55,7 @@ export default function OverCapReport() {
         <div className="flex items-center gap-2">
           <Select value={limitType} onValueChange={setLimitType}>
             <SelectTrigger className="w-44" aria-label="Limit"><SelectValue /></SelectTrigger>
-            <SelectContent>{LIMITS.map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}</SelectContent>
+            <SelectContent>{LIMIT_OPTIONS.map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}</SelectContent>
           </Select>
           <Button variant="outline" size="sm" onClick={copyEmails} disabled={!data?.rows.length}>
             <Copy className="mr-2 h-4 w-4" />Copy owner emails

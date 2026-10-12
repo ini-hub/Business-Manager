@@ -24,25 +24,29 @@ export function rankOverCap<T extends { over: number; used: number }>(rows: T[])
   return [...rows].sort((a, b) => b.over - a.over || b.used - a.used);
 }
 
+type OrgUsage = Promise<{ org: string | null; c: number }[]>;
+
+/** One live-usage query per cap. Typed per cap, so a new cap cannot be added without its report query. */
+const USAGE_QUERIES: Record<CountLimitType, () => OrgUsage> = {
+  staff_seats: () => db.select({ org: stores.businessId, c: sql<number>`count(*)::int` }).from(staff).innerJoin(stores, eq(staff.storeId, stores.id)).where(eq(staff.isArchived, false)).groupBy(stores.businessId),
+  customer_count: () => db.select({ org: stores.businessId, c: sql<number>`count(*)::int` }).from(customers).innerJoin(stores, eq(customers.storeId, stores.id)).where(eq(customers.isArchived, false)).groupBy(stores.businessId),
+  item_count: () =>
+    db
+      .select({ org: stores.businessId, c: sql<number>`count(*)::int` })
+      .from(inventory)
+      .innerJoin(stores, eq(inventory.storeId, stores.id))
+      .where(and(eq(inventory.isDeleted, false), sql`${inventory.type} in ('product','service')`))
+      .groupBy(stores.businessId),
+  store_count: () => db.select({ org: stores.businessId, c: sql<number>`count(*)::int` }).from(stores).where(eq(stores.isActive, true)).groupBy(stores.businessId),
+};
+
 /**
  * Live usage per organisation for one limit, with the same filters as countUsed in entitlements.ts. Only a
  * pre-filter: every org it returns is checked again with getCountLimitStatus, which is the authority (trials,
  * purchased tiers and soft locks all live there).
  */
 async function usageByOrganisation(limitType: CountLimitType): Promise<Map<string, number>> {
-  const rows =
-    limitType === "staff_seats"
-      ? await db.select({ org: stores.businessId, c: sql<number>`count(*)::int` }).from(staff).innerJoin(stores, eq(staff.storeId, stores.id)).where(eq(staff.isArchived, false)).groupBy(stores.businessId)
-      : limitType === "customer_count"
-        ? await db.select({ org: stores.businessId, c: sql<number>`count(*)::int` }).from(customers).innerJoin(stores, eq(customers.storeId, stores.id)).where(eq(customers.isArchived, false)).groupBy(stores.businessId)
-        : limitType === "item_count"
-          ? await db
-              .select({ org: stores.businessId, c: sql<number>`count(*)::int` })
-              .from(inventory)
-              .innerJoin(stores, eq(inventory.storeId, stores.id))
-              .where(and(eq(inventory.isDeleted, false), sql`${inventory.type} in ('product','service')`))
-              .groupBy(stores.businessId)
-          : await db.select({ org: stores.businessId, c: sql<number>`count(*)::int` }).from(stores).where(eq(stores.isActive, true)).groupBy(stores.businessId);
+  const rows = await USAGE_QUERIES[limitType]();
   return new Map(rows.filter((r) => r.org).map((r) => [r.org as string, r.c]));
 }
 

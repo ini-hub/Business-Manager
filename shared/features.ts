@@ -19,6 +19,7 @@
  */
 
 import { isPermissionModule, type PermissionModule } from "./permissionModules";
+import type { LimitType } from "./limits";
 
 type FeatureTier = "free" | "paid_flat" | "paid_metered_limit" | "bundle_parent" | "bundle_child";
 
@@ -92,7 +93,7 @@ export interface FeatureDef {
   dependsOn?: readonly string[];
   /** paid_metered_limit only. */
   freeLimit?: number;
-  limitType?: "staff_seats" | "customer_count" | "store_count" | "item_count";
+  limitType?: LimitType;
   /**
    * paid_metered_limit only: the most this tier allows in total (not on top of freeLimit). Leave it off for the
    * unlimited tier. Tiers of one limitType are mutually exclusive: holding a bigger one replaces a smaller one.
@@ -1175,7 +1176,7 @@ export function checkDisableAllowed(key: string, confirmKey: unknown): string | 
   return null;
 }
 
-type LimitKind = NonNullable<FeatureDef["limitType"]>;
+type LimitKind = LimitType;
 
 /**
  * The part of a catalog entry that makes it a limit tier. The limit logic below works on these rather

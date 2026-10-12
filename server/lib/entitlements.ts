@@ -17,6 +17,7 @@ import {
 import { getOrgLifecycle } from "./trial";
 import { getConfiguredGraceDays } from "./platformConfig";
 import { FREE_FEATURE_KEYS, getFeatureDef, resolveCountLimit, tiersNotAbove, type LimitTier } from "@shared/features";
+import { LIMITS, LIMIT_TYPES, limitScopeNote, type LimitType } from "@shared/limits";
 import { computeDisabledKeys } from "./featureVisibility";
 
 /**
@@ -32,7 +33,8 @@ type DbOrTx = typeof db;
 // sync runs), yet they were re-read on nearly every API request. A short TTL keeps that to a handful of
 // reads per window; the admin writers call invalidateFeatureCatalogCache() so their own edits show at once
 // (another instance sees them within the TTL). Per-org rows (purchases, lifecycle) are NOT cached: a
-// purchase or removal must take effect on the very next request.
+// purchase or removal must take effect on the very next request. Anything that blocks an action or settles a
+// purchase (the count-limit check, granting a tier, validating a pack selection) reads the catalog fresh instead.
 const FEATURE_CACHE_TTL_MS = 15_000;
 const catalogCache = createTtlCache<"all", FeatureCatalog[]>(FEATURE_CACHE_TTL_MS);
 type FlagRow = { key: string; status: string; scopedOrgIds: unknown };
@@ -433,23 +435,17 @@ export async function getOrgFeatureView(
   return { disabled: Array.from(disabled), prices };
 }
 
-export type CountLimitType = "staff_seats" | "customer_count" | "store_count" | "item_count";
+export type CountLimitType = LimitType;
 
-const LIMIT_FEATURE_KEY: Record<CountLimitType, string> = {
-  staff_seats: "staff_seats_addon",
-  customer_count: "customer_capacity_addon",
-  store_count: "store_addon",
-  item_count: "item_capacity_addon",
-};
+// Per-cap names and defaults live in shared/limits.ts, so a new cap is added there once.
+const LIMIT_FEATURE_KEY = Object.fromEntries(LIMIT_TYPES.map((t) => [t, LIMITS[t].unlimitedFeatureKey])) as Record<CountLimitType, string>;
 
 /**
  * Fallback when the catalog row has no freeLimit (seed drift, or an admin
  * clearing the field): the documented free tier, never 0. A 0 would block the
  * very first store/staff/customer and lock a post-trial org out of setup.
  */
-const DEFAULT_FREE_LIMIT: Record<CountLimitType, number> = { staff_seats: 2, customer_count: 30, store_count: 1, item_count: 50 };
-
-const LIMIT_NOUN: Record<CountLimitType, string> = { staff_seats: "staff member", customer_count: "customer", store_count: "store", item_count: "item" };
+const DEFAULT_FREE_LIMIT = Object.fromEntries(LIMIT_TYPES.map((t) => [t, LIMITS[t].defaultFree])) as Record<CountLimitType, number>;
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -466,8 +462,8 @@ export class CountLimitError extends Error {
   readonly featureKey: string;
   constructor(readonly limitType: CountLimitType, readonly limit: number, readonly used: number, readonly adding = 1, readonly tiered = false, readonly trial = false) {
     // Seats are per store and never include the owner, so say so wherever the number is quoted.
-    const noun = LIMIT_NOUN[limitType];
-    const scope = limitType === "staff_seats" ? " per store (the owner doesn't count)" : "";
+    const noun = LIMITS[limitType].noun;
+    const scope = limitScopeNote(limitType);
     super(
       trial
         ? adding > 1
@@ -512,26 +508,35 @@ type CountConn = Pick<typeof db, "select">;
  * For staff, `storeId` picks the store to count; without it the busiest store is returned.
  */
 async function countUsed(conn: CountConn, organisationId: string, limitType: CountLimitType, storeId?: string): Promise<number> {
-  if (limitType === "staff_seats") {
-    const perStore = await staffUsedByStore(conn, organisationId);
-    if (storeId) return perStore.get(storeId) ?? 0;
-    return Math.max(0, ...Array.from(perStore.values()));
+  switch (limitType) {
+    case "staff_seats": {
+      const perStore = await staffUsedByStore(conn, organisationId);
+      if (storeId) return perStore.get(storeId) ?? 0;
+      return Math.max(0, ...Array.from(perStore.values()));
+    }
+    case "customer_count": {
+      const [row] = await conn
+        .select({ c: sql<number>`count(distinct coalesce(${customers.globalCustomerId}, nullif(${customers.mobileNumber}, ''), ${customers.id}))::int` })
+        .from(customers)
+        .innerJoin(stores, eq(customers.storeId, stores.id))
+        .where(and(eq(customers.isArchived, false), eq(stores.businessId, organisationId)));
+      return row?.c ?? 0;
+    }
+    case "item_count": {
+      // Sellable items only: back-bar supplies (type 'supply') are consumables, not catalogue items.
+      const [row] = await conn.select({ c: sql<number>`count(*)::int` }).from(inventory).innerJoin(stores, eq(inventory.storeId, stores.id)).where(and(eq(stores.businessId, organisationId), eq(inventory.isDeleted, false), sql`${inventory.type} in ('product','service')`));
+      return row?.c ?? 0;
+    }
+    case "store_count": {
+      const [row] = await conn.select({ c: sql<number>`count(*)::int` }).from(stores).where(and(eq(stores.businessId, organisationId), eq(stores.isActive, true)));
+      return row?.c ?? 0;
+    }
+    default: {
+      // A cap added to shared/limits.ts without a count would otherwise fall through to another cap's count.
+      const missing: never = limitType;
+      throw new Error(`No usage count for cap "${missing}" - add it to countUsed`);
+    }
   }
-  if (limitType === "customer_count") {
-    const [row] = await conn
-      .select({ c: sql<number>`count(distinct coalesce(${customers.globalCustomerId}, nullif(${customers.mobileNumber}, ''), ${customers.id}))::int` })
-      .from(customers)
-      .innerJoin(stores, eq(customers.storeId, stores.id))
-      .where(and(eq(customers.isArchived, false), eq(stores.businessId, organisationId)));
-    return row?.c ?? 0;
-  }
-  if (limitType === "item_count") {
-    // Sellable items only: back-bar supplies (type 'supply') are consumables, not catalogue items.
-    const [row] = await conn.select({ c: sql<number>`count(*)::int` }).from(inventory).innerJoin(stores, eq(inventory.storeId, stores.id)).where(and(eq(stores.businessId, organisationId), eq(inventory.isDeleted, false), sql`${inventory.type} in ('product','service')`));
-    return row?.c ?? 0;
-  }
-  const [row] = await conn.select({ c: sql<number>`count(*)::int` }).from(stores).where(and(eq(stores.businessId, organisationId), eq(stores.isActive, true)));
-  return row?.c ?? 0;
 }
 
 /** The three org-wide counts countUsed runs one by one, as one statement. Keep the filters in step with countUsed. */
@@ -565,6 +570,8 @@ export async function staffUsedByStore(conn: CountConn, organisationId: string):
 }
 
 
+const limitTierColumns = { key: featureCatalog.key, tierType: featureCatalog.tierType, limitType: featureCatalog.limitType, tierCapacity: featureCatalog.tierCapacity };
+
 /** Every limit tier in the catalog (built-in and admin-created), for the tier-capacity logic in shared/features.ts. */
 export async function loadLimitTiers(conn: DbOrTx | Tx = db): Promise<LimitTier[]> {
   // The platform catalog is already cached; only transactional callers need a fresh, same-snapshot read.
@@ -573,11 +580,22 @@ export async function loadLimitTiers(conn: DbOrTx | Tx = db): Promise<LimitTier[
       .filter((f) => f.tierType === "paid_metered_limit")
       .map((f) => ({ key: f.key, tierType: f.tierType, limitType: f.limitType, tierCapacity: f.tierCapacity }));
   }
-  const rows = await conn
-    .select({ key: featureCatalog.key, tierType: featureCatalog.tierType, limitType: featureCatalog.limitType, tierCapacity: featureCatalog.tierCapacity })
-    .from(featureCatalog)
-    .where(eq(featureCatalog.tierType, "paid_metered_limit"));
-  return rows;
+  return loadLimitTiersFresh(conn);
+}
+
+/**
+ * The same read straight from the table, skipping the catalog cache. For paths that block an action or settle a
+ * purchase: the cache can lag an admin's edit by its TTL on another server instance, and a cap or a replaced pack
+ * must never be judged against a tier list that is missing the step just published.
+ */
+export async function loadLimitTiersFresh(conn: DbOrTx | Tx = db): Promise<LimitTier[]> {
+  return conn.select(limitTierColumns).from(featureCatalog).where(eq(featureCatalog.tierType, "paid_metered_limit"));
+}
+
+/** A catalog row by key, straight from the table (see loadLimitTiersFresh). */
+export async function getFeatureByKeyFresh(featureKey: string, conn: DbOrTx | Tx = db): Promise<FeatureCatalog | undefined> {
+  const [row] = await conn.select().from(featureCatalog).where(eq(featureCatalog.key, featureKey)).limit(1);
+  return row;
 }
 
 /**
@@ -606,7 +624,8 @@ async function evaluateCountLimit(
   tx: DbOrTx | Tx,
   organisationId: string,
   limitType: CountLimitType,
-  storeId?: string
+  storeId?: string,
+  fresh = false,
 ): Promise<{ limit: number; used: number; unlimited: boolean; tiered: boolean; trial: boolean }> {
   // One lifecycle read answers both "trialing" and "soft-locked" (they used to be two reads of the same row).
   const life = await loadLifecycle(db, organisationId);
@@ -617,12 +636,14 @@ async function evaluateCountLimit(
   if (trial && limitType === "store_count") return { limit: Infinity, used: 0, unlimited: true, tiered: false, trial: false };
 
   // The catalog is platform-wide and cached (admin edits invalidate it); only per-org rows are read per call.
-  const feature = await getFeatureByKey(LIMIT_FEATURE_KEY[limitType]);
+  // The authoritative check (`fresh`, inside the write's transaction) reads the cap's rows from the table instead,
+  // so an admin's edit to a free cap or a tier binds at once on every server instance, not after the cache TTL.
+  const feature = fresh ? await getFeatureByKeyFresh(LIMIT_FEATURE_KEY[limitType], tx) : await getFeatureByKey(LIMIT_FEATURE_KEY[limitType]);
   const freeLimit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
 
   // A failed renewal drops the org back to the free tier; otherwise the cap is the biggest tier it owns.
   const owned = softLockedFrom(life) ? [] : await loadOwnedTierKeys(tx, organisationId, limitType);
-  const resolved = resolveCountLimit(limitType, freeLimit, owned, await loadLimitTiers());
+  const resolved = resolveCountLimit(limitType, freeLimit, owned, fresh ? await loadLimitTiersFresh(tx) : await loadLimitTiers());
   if (resolved.unlimited) return { limit: freeLimit, used: 0, unlimited: true, tiered: false, trial: false };
   const limit = resolved.limit;
   const used = await countUsed(tx, organisationId, limitType, storeId);
@@ -642,7 +663,7 @@ async function evaluateCountLimit(
  */
 export async function assertWithinCountLimit(tx: Tx, organisationId: string, limitType: CountLimitType, adding = 1, storeId?: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${organisationId + ":" + limitType}))`);
-  const { limit, used, unlimited, tiered, trial } = await evaluateCountLimit(tx, organisationId, limitType, storeId);
+  const { limit, used, unlimited, tiered, trial } = await evaluateCountLimit(tx, organisationId, limitType, storeId, true);
   if (!unlimited && used + adding > limit) throw new CountLimitError(limitType, limit, used, adding, tiered, trial);
 }
 
@@ -716,7 +737,8 @@ export async function grantFeatureEntitlement(args: {
   subscriptionPaymentId?: string | null;
   grantedByAdminId?: string | null;
 }): Promise<void> {
-  const feature = await getFeatureByKey(args.featureKey);
+  // Settling a purchase reads the catalog fresh: a tier published moments ago must not be dropped on a cache miss.
+  const feature = await getFeatureByKeyFresh(args.featureKey);
   if (!feature) return;
 
   const [existing] = await db
@@ -749,7 +771,7 @@ export async function grantFeatureEntitlement(args: {
   }
 
   // A bigger seat/limit pack replaces the smaller ones, so renewal bills only the tier the org is on.
-  const replaced = tiersNotAbove(args.featureKey, await loadLimitTiers());
+  const replaced = tiersNotAbove(args.featureKey, await loadLimitTiersFresh());
   if (replaced.length) {
     const replacedRows = await db.select({ id: featureCatalog.id }).from(featureCatalog).where(inArray(featureCatalog.key, replaced));
     if (replacedRows.length) {

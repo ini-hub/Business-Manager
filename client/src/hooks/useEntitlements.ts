@@ -3,9 +3,10 @@ import { findGatedScreen } from "@shared/gateRules";
 import { gatedFeatureForScreen } from "@shared/features";
 import type { PermissionModule } from "@shared/permissionModules";
 import type { SidebarLayout } from "@shared/sidebarLayout";
+import { LIMITS, LIMIT_TYPES, type LimitType } from "@shared/limits";
 import { useOptionalStore } from "@/lib/store-context";
 
-type CountLimitStatus = { limit: number; used: number; unlimited: boolean; tiered?: boolean; trial?: boolean; usedByStore?: Record<string, number> };
+export type CountLimitStatus = { limit: number; used: number; unlimited: boolean; tiered?: boolean; trial?: boolean; usedByStore?: Record<string, number> };
 
 type EntitlementsResponse = {
   features: string[];
@@ -25,12 +26,7 @@ type EntitlementsResponse = {
   disabledFeatures?: string[];
   // Cost of every visible-but-unpaid feature, for "X costs ₦N/month" prompts.
   featurePrices?: Record<string, FeaturePrice>;
-  limits: {
-    staff_seats: CountLimitStatus;
-    customer_count: CountLimitStatus;
-    store_count: CountLimitStatus;
-    item_count?: CountLimitStatus;
-  };
+  limits: Partial<Record<LimitType, CountLimitStatus>>;
 };
 
 export type FeaturePrice = { name: string; monthly: number | null; annual: number | null; currency: string; viaFeatureKey?: string };
@@ -56,6 +52,17 @@ export function useEntitlements() {
     queryKey: ["/api/entitlements"],
     staleTime: 60_000, // purchases/removals are user-initiated and invalidate this key directly, no need to poll
   });
+
+  const limitStatus = Object.fromEntries(
+    LIMIT_TYPES.map((t): [LimitType, CountLimitStatus | undefined] => {
+      const status = data?.limits[t];
+      // Per-store caps (staff seats, owner excluded): show the store in view, or the busiest one for "all stores".
+      if (status && LIMITS[t].perStore) {
+        return [t, { ...status, used: storeId && storeId !== "all" ? status.usedByStore?.[storeId] ?? 0 : status.used }];
+      }
+      return [t, status];
+    }),
+  ) as Record<LimitType, CountLimitStatus | undefined>;
 
   return {
     hasFeature: (featureKey: string) => !!data?.features.includes(featureKey),
@@ -87,14 +94,13 @@ export function useEntitlements() {
     lifecycle: data?.lifecycle,
     entitledKeys: data?.features ?? [],
     purchasedKeys: data?.purchasedFeatures ?? [],
+    // Every cap by key, so a gate can look its cap up by type instead of switching on it.
+    limitStatus,
     // Seats are per store (owner excluded): show the store in view, or the busiest one for "all stores".
-    staffSeats: data?.limits.staff_seats && {
-      ...data.limits.staff_seats,
-      used: storeId && storeId !== "all" ? data.limits.staff_seats.usedByStore?.[storeId] ?? 0 : data.limits.staff_seats.used,
-    },
-    customerCount: data?.limits.customer_count,
-    storeCount: data?.limits.store_count,
-    itemCount: data?.limits.item_count,
+    staffSeats: limitStatus.staff_seats,
+    customerCount: limitStatus.customer_count,
+    storeCount: limitStatus.store_count,
+    itemCount: limitStatus.item_count,
     isLoading,
     // A failed fetch is not the same as "no features" - callers must not show the upgrade lock for it.
     isError,

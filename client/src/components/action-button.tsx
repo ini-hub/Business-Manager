@@ -5,8 +5,8 @@ import { Button, type ButtonProps } from "@/components/ui/button";
 import { useGate } from "@/components/billing/Gated";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { announcePlanLimit, countLimitMessage } from "@/lib/upgrade-prompt";
+import type { LimitType } from "@shared/limits";
 
-type LimitType = "staff_seats" | "customer_count" | "store_count" | "item_count";
 
 export interface ActionButtonProps extends Omit<ButtonProps, "children" | "asChild"> {
   /** Shown beside the icon from `lg` up; always the accessible name (unless `ariaLabel` is set). */
@@ -25,9 +25,9 @@ export interface ActionButtonProps extends Omit<ButtonProps, "children" | "asChi
 }
 
 function useLimitStatus(limit: LimitType | undefined) {
-  const { staffSeats, customerCount, storeCount, itemCount, isLoading, isError } = useEntitlements();
+  const { limitStatus, isLoading, isError } = useEntitlements();
   if (!limit || isLoading || isError) return null;
-  const status = { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount, item_count: itemCount }[limit];
+  const status = limitStatus[limit];
   return status && !status.unlimited && status.used >= status.limit ? { limit, cap: status.limit, tiered: !!status.tiered, trial: !!status.trial } : null;
 }
 

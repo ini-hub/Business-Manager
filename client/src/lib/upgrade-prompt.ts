@@ -8,6 +8,8 @@
  * Framework-free on purpose so it is unit-testable without a DOM.
  */
 
+import { LIMITS, limitScopeNote, type LimitType } from "@shared/limits";
+
 export type PlanLimitDetails = {
   kind: "feature" | "count";
   message: string;
@@ -15,7 +17,7 @@ export type PlanLimitDetails = {
   featureName?: string;
   priceMonthly?: number | null;
   currency?: string;
-  limitType?: "staff_seats" | "customer_count" | "store_count" | "item_count";
+  limitType?: LimitType;
   limit?: number;
   used?: number;
   /** The org is on a paid pack that is full, not on the free tier. */
@@ -81,13 +83,11 @@ export function isDuplicatePlanLimitToast(description: unknown, now: number = Da
   return description === lastAnnounced.message && now - lastAnnounced.at < DUPLICATE_TOAST_WINDOW_MS;
 }
 
-const LIMIT_NOUN = { staff_seats: "staff member", customer_count: "customer", store_count: "store", item_count: "item" } as const;
-
 /** Same wording as the server's CountLimitError, for gates that know they're at the cap before any request is sent. */
-export function countLimitMessage(limitType: keyof typeof LIMIT_NOUN, limit: number, tiered = false, trial = false): string {
-  const noun = LIMIT_NOUN[limitType];
+export function countLimitMessage(limitType: LimitType, limit: number, tiered = false, trial = false): string {
+  const noun = LIMITS[limitType].noun;
   // Same wording as the server: seats are per store and the owner never uses one.
-  const scope = limitType === "staff_seats" ? " per store (the owner doesn't count)" : "";
+  const scope = limitScopeNote(limitType);
   if (trial) return `You're on the free trial, which includes ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Upgrade to get more.`;
   if (tiered) return `Your plan covers up to ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Move up to a bigger plan to add more.`;
   return `You're on the free tier of ${limit} ${noun}${limit === 1 ? "" : "s"}${scope}. Add the ${noun} add-on to add more.`;
@@ -96,7 +96,7 @@ export function countLimitMessage(limitType: keyof typeof LIMIT_NOUN, limit: num
 /** Title for the dialog: names the feature, or the cap that was hit. */
 export function upgradeTitle(details: PlanLimitDetails): string {
   if (details.kind === "feature") return `Unlock ${details.featureName ?? "this feature"}`;
-  const noun = details.limitType === "staff_seats" ? "staff" : details.limitType === "store_count" ? "stores" : details.limitType === "item_count" ? "items" : "customers";
+  const noun = details.limitType ? LIMITS[details.limitType].plural : "customers";
   if (details.trial) return `You've reached your free trial's ${noun} limit`;
   return details.tiered ? `You've reached your plan's ${noun} limit` : `You've reached your free ${noun} limit`;
 }

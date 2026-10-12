@@ -5,15 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { openBilling } from "@/lib/upgrade-prompt";
 import { limitNudgeState } from "@/lib/limit-nudge";
-
-type LimitType = "staff_seats" | "customer_count" | "store_count" | "item_count";
-
-const NOUN: Record<LimitType, { one: string; many: string }> = {
-  staff_seats: { one: "staff member in this store", many: "staff in this store" },
-  customer_count: { one: "customer", many: "customers" },
-  store_count: { one: "store", many: "stores" },
-  item_count: { one: "item", many: "items" },
-};
+import { LIMITS, type LimitType } from "@shared/limits";
 
 const dismissKey = (limitType: LimitType, limit: number, state: string) => `limit-nudge:${limitType}:${limit}:${state}`;
 
@@ -22,9 +14,9 @@ const dismissKey = (limitType: LimitType, limit: number, state: string) => `limi
  * room, not as a failed add. Dismissing it hides it for that cap level; moving to "full" or a new cap shows it again.
  */
 export function LimitNudge({ limitType }: { limitType: LimitType }) {
-  const { staffSeats, customerCount, storeCount, itemCount, isLoading, isError } = useEntitlements();
+  const { limitStatus, isLoading, isError } = useEntitlements();
   const [, navigate] = useLocation();
-  const status = { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount, item_count: itemCount }[limitType];
+  const status = limitStatus[limitType];
   const state = isLoading || isError ? "none" : limitNudgeState(status);
 
   const [dismissed, setDismissed] = useState(() => {
@@ -37,7 +29,7 @@ export function LimitNudge({ limitType }: { limitType: LimitType }) {
   });
 
   if (state === "none" || !status || dismissed) return null;
-  const noun = NOUN[limitType];
+  const noun = LIMITS[limitType].nudge;
   const left = status.limit - status.used;
   const text =
     state === "full"

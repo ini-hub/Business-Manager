@@ -14,7 +14,7 @@ import {
   verifyWebhookSignature,
 } from "../lib/paystack";
 import { createPendingPayment, activateSuccessfulPayment, planPrice } from "../lib/billing";
-import { getActiveFeaturePricing, getOrgPurchasedFeatures, validatePurchaseDependencies, scheduleFeatureRemoval, getFeatureByKey, loadLimitTiers } from "../lib/entitlements";
+import { getActiveFeaturePricing, getOrgPurchasedFeatures, validatePurchaseDependencies, scheduleFeatureRemoval, getFeatureByKey, loadLimitTiersFresh } from "../lib/entitlements";
 import { featureCatalog } from "@shared/schema";
 import { loadEntitlementsPayload } from "../lib/shellData";
 import { priceIncrement } from "@shared/bundles";
@@ -205,7 +205,7 @@ export function registerBillingRoutes(app: Express, { requireRole }: RouteMiddle
         }
 
         // One seat/limit pack per limit type, and never one the org has already outgrown.
-        const limitTiers = await loadLimitTiers();
+        const limitTiers = await loadLimitTiersFresh();
         const heldTierKeys = Array.from(await getOrgPurchasedFeatures(user.businessId));
         const tierProblem = validateTierSelection(data.featureKeys, heldTierKeys, limitTiers);
         if (tierProblem) return res.status(400).json({ error: tierProblem });

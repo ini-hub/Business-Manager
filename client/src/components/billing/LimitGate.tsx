@@ -5,13 +5,7 @@ import { Lock } from "lucide-react";
 import { useLocation } from "wouter";
 import { useEntitlements } from "@/hooks/useEntitlements";
 import { countLimitMessage, openBilling } from "@/lib/upgrade-prompt";
-
-const LABELS = {
-  staff_seats: { plural: "staff", short: "Staff" },
-  customer_count: { plural: "customers", short: "Customers" },
-  store_count: { plural: "stores", short: "Stores" },
-  item_count: { plural: "items", short: "Items" },
-} as const;
+import { LIMITS, type LimitType } from "@shared/limits";
 
 /**
  * Wraps an "add new X" page. At the free-tier cap it shows the upgrade card
@@ -20,22 +14,21 @@ const LABELS = {
  * keeps everything it has and is only blocked from adding more. The server
  * (assertWithinCountLimit) stays the source of truth; this is the courtesy layer.
  */
-export function LimitGate({ limitType, children }: { limitType: keyof typeof LABELS; children: ReactNode }) {
-  const { staffSeats, customerCount, storeCount, itemCount, isLoading } = useEntitlements();
+export function LimitGate({ limitType, children }: { limitType: LimitType; children: ReactNode }) {
+  const { limitStatus, isLoading } = useEntitlements();
   const [, navigate] = useLocation();
 
   if (isLoading) return null;
-  const status = { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount, item_count: itemCount }[limitType];
+  const status = limitStatus[limitType];
   if (!status || status.unlimited || status.used < status.limit) return <>{children}</>;
 
-  const label = LABELS[limitType];
   return (
     <Card className="border-dashed">
       <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
         <Lock className="h-6 w-6 text-muted-foreground" />
         <div>
           <p className="font-medium">
-            {label.short} limit reached ({status.used} of {status.limit})
+            {LIMITS[limitType].short} limit reached ({status.used} of {status.limit})
           </p>
           <p className="text-sm text-muted-foreground">{countLimitMessage(limitType, status.limit, status.tiered, status.trial)}</p>
         </div>

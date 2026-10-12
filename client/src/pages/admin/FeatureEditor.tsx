@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PERMISSION_MODULES } from "@shared/permissionModules";
 import { DisableImpactNote, disableAllowed } from "./DisableImpactNote";
 import { Spinner } from "@/components/ui/loader";
+import { LIMITS, LIMIT_TYPES } from "@shared/limits";
 
 const CATEGORIES = ["vendor_mgmt", "staff_mgmt", "customer_mgmt", "financial_mgmt", "tax_compliance", "inventory_mgmt", "analytics", "business_settings"] as const;
 const CATEGORY_LABELS: Record<string, string> = {
@@ -28,13 +29,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   business_settings: "Business & Settings",
 };
 
-/** The symbolic keys the enforcement code switches on (shared/features.ts `limitType`). */
-const LIMIT_TYPES = [
-  { value: "staff_seats", label: "Staff seats", unit: "seats" },
-  { value: "customer_count", label: "Customers", unit: "customers" },
-  { value: "item_count", label: "Inventory items", unit: "items" },
-  { value: "store_count", label: "Stores", unit: "stores" },
-] as const;
+/** The symbolic keys the enforcement code switches on (shared/limits.ts). */
+const LIMIT_OPTIONS = LIMIT_TYPES.map((t) => ({ value: t, label: LIMITS[t].adminLabel, unit: LIMITS[t].adminUnit }));
 
 const TIERS = [
   { value: "free", label: "Free", icon: Gift, blurb: "Available to every business. No price." },
@@ -159,7 +155,7 @@ export default function FeatureEditor() {
   const canSave = missing.length === 0 && !disableBlocked && !saveMutation.isPending;
 
   const tier = TIERS.find((t) => t.value === form.tierType)!;
-  const limit = LIMIT_TYPES.find((l) => l.value === form.limitType);
+  const limit = LIMIT_OPTIONS.find((l) => l.value === form.limitType);
   const parent = bundles.find((b) => b.id === form.parentFeatureId);
 
   return (
@@ -244,7 +240,7 @@ export default function FeatureEditor() {
                       <Label className="text-xs">What is limited</Label>
                       <Select value={form.limitType} onValueChange={(v) => patch({ limitType: v })}>
                         <SelectTrigger><SelectValue placeholder="Choose one" /></SelectTrigger>
-                        <SelectContent>{LIMIT_TYPES.map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}</SelectContent>
+                        <SelectContent>{LIMIT_OPTIONS.map((l) => <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1.5">

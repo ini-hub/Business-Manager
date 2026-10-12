@@ -5,7 +5,9 @@
  * the server (validation), so what the admin is shown is what gets created.
  */
 
-export type CapType = "store_count" | "staff_seats" | "customer_count" | "item_count";
+import { LIMITS, LIMIT_TYPES, isLimitType, type LimitType } from "./limits";
+
+export type CapType = LimitType;
 
 export interface CapMeta {
   label: string;
@@ -15,28 +17,13 @@ export interface CapMeta {
   describe: (limit: number) => string;
 }
 
-export const CAPS: Record<CapType, CapMeta> = {
-  store_count: {
-    label: "Stores", unit: "stores", keyPrefix: "store_pack",
-    describe: (n) => `Up to ${n} stores in total, with Stock Transfers and Staff Transfers included.`,
-  },
-  staff_seats: {
-    label: "Staff Seats", unit: "staff per store", keyPrefix: "staff_seats",
-    describe: (n) => `Up to ${n} staff per store. The owner never uses a seat.`,
-  },
-  customer_count: {
-    label: "Customers", unit: "customers", keyPrefix: "customer_pack",
-    describe: (n) => `Up to ${n} customers in total.`,
-  },
-  item_count: {
-    label: "Inventory items", unit: "items", keyPrefix: "item_pack",
-    describe: (n) => `Up to ${n} inventory items in total.`,
-  },
-};
+export const CAPS = Object.fromEntries(
+  LIMIT_TYPES.map((t) => [t, { label: LIMITS[t].capLabel, unit: LIMITS[t].capUnit, keyPrefix: LIMITS[t].keyPrefix, describe: LIMITS[t].describe }]),
+) as Record<CapType, CapMeta>;
 
-export const CAP_ORDER: CapType[] = ["store_count", "staff_seats", "customer_count", "item_count"];
+export const CAP_ORDER: readonly CapType[] = LIMIT_TYPES;
 
-export const isCapType = (v: unknown): v is CapType => typeof v === "string" && v in CAPS;
+export const isCapType = isLimitType;
 
 /** One step on a cap's ladder, free cap first. */
 export interface LadderStep {
