@@ -206,15 +206,15 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
+    <div className="space-y-6 max-w-4xl mx-auto w-full min-w-0">
       <PageHeader
         title="My Profile"
         description="Manage your account settings and preferences"
         compact
       />
 
-      <div className="grid gap-6 md:grid-cols-[250px_1fr]">
-        <div className="space-y-6">
+      <div className="grid gap-6 md:grid-cols-[250px_minmax(0,1fr)]">
+        <div className="space-y-6 min-w-0">
           <Card className="overflow-hidden border-primary/10 shadow-md">
             <div className="h-24 bg-gradient-to-br from-primary/20 to-primary/5" />
             <CardContent className="pt-0 -mt-12 text-center pb-6">
@@ -229,8 +229,8 @@ export default function ProfilePage() {
                   <Camera className="h-6 w-6 text-white" />
                 </div>
               </div>
-              <h3 className="mt-4 font-bold text-lg">{user?.name || "User"}</h3>
-              <p className="text-sm text-muted-foreground">{user?.email}</p>
+              <h3 className="mt-4 font-bold text-lg break-words">{user?.name || "User"}</h3>
+              <p className="text-sm text-muted-foreground break-all">{user?.email}</p>
               <Badge className="mt-2 capitalize" variant="outline">
                 <Shield className="mr-1 h-3 w-3" />
                 {user?.role}
@@ -239,8 +239,8 @@ export default function ProfilePage() {
           </Card>
         </div>
 
-        <div className="space-y-6">
-          <Tabs defaultValue="general" className="w-full">
+        <div className="space-y-6 min-w-0">
+          <Tabs defaultValue="general" className="w-full min-w-0">
             <PolymorphicTabsList
               tabs={[
                 { value: "general", label: "General Information" },
@@ -263,7 +263,7 @@ export default function ProfilePage() {
                   <div className="grid gap-2">
                     <Label htmlFor="email">Email Address</Label>
                     <div className="flex items-center gap-2">
-                      <Input id="email" value={user?.email || ""} disabled className="bg-muted" />
+                      <Input id="email" value={user?.email || ""} disabled className="bg-muted min-w-0" />
                       {user?.isVerified && <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />}
                     </div>
 
@@ -567,7 +567,7 @@ export default function ProfilePage() {
                         <AvatarImage src={photoUrl} />
                         <AvatarFallback>{name?.charAt(0) || user?.email?.charAt(0)}</AvatarFallback>
                       </Avatar>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <Input 
                           type="file" 
                           accept="image/*"

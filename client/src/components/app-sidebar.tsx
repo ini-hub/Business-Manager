@@ -145,14 +145,14 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="border-b border-sidebar-border px-6 py-4">
+      <SidebarHeader className="border-b border-sidebar-border px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] lg:h-16 lg:justify-center lg:py-0">
         <div className="flex items-center gap-3">
           <BrandMark size={40} />
           <div className="flex flex-col">
             <span className="font-[Instrument_Sans,system-ui,sans-serif] text-lg font-bold leading-tight tracking-[-0.03em]">
               kowope
             </span>
-            <span className="text-[11px] text-muted-foreground font-medium leading-tight">Business Management System</span>
+            <span className="whitespace-nowrap text-[11px] text-muted-foreground font-medium leading-tight">Business Management System</span>
           </div>
         </div>
         
