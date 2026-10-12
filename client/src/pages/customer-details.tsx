@@ -410,7 +410,7 @@ export default function CustomerDetails({ view = "overview" }: { view?: "overvie
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <h1 className="text-lg font-bold tracking-tight truncate">{customer.name}</h1>
+            <h1 className="truncate">{customer.name}</h1>
             <p className="text-xs text-muted-foreground truncate">
               {customer.customerNumber} · Customer since{" "}
               {new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(new Date(customer.createdAt))}
@@ -555,7 +555,7 @@ export default function CustomerDetails({ view = "overview" }: { view?: "overvie
       <div className="space-y-6">
           <Card className="glassmorphism border border-border/80">
             <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
+              <CardTitle className="flex items-center gap-2 text-foreground">
                 <Receipt className="h-4 w-4 text-primary" />
                 Customer Logs & Activities
               </CardTitle>

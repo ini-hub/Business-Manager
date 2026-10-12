@@ -73,7 +73,7 @@ export function OverviewTab({ data, canEdit }: { data: FeatureDetailData; canEdi
 
       <section aria-labelledby="from-code" className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 id="from-code" className="text-sm font-bold text-foreground">From the code</h3>
+          <h3 id="from-code" className="text-foreground">From the code</h3>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-[11px] font-bold text-muted-foreground">
             <Lock className="h-3 w-3" /> Managed in code, synced on deploy
           </span>

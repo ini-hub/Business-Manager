@@ -182,7 +182,7 @@ export default function FeaturesList() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div className="max-w-2xl">
-          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Features</h1>
+          <h1 className="text-foreground">Features</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Every feature businesses can use: its price, whether it is sold, and who sees it. Name, tier and structure come from the code and sync on each release.
           </p>
@@ -242,7 +242,7 @@ export default function FeaturesList() {
 
           {visible.length === 0 ? (
             <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
-              <h3 className="text-sm font-bold text-foreground">No features match</h3>
+              <h3 className="text-foreground">No features match</h3>
               <p className="text-xs text-muted-foreground mt-1">Try a different search or clear the filters.</p>
               {filtering && <Button variant="outline" size="sm" className="mt-4 rounded-xl" onClick={clear}>Clear filters</Button>}
             </div>

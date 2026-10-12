@@ -188,7 +188,7 @@ export default function AnnouncementsManager() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Platform Announcements</h1>
+          <h1 className="text-foreground">Platform Announcements</h1>
           <p className="text-muted-foreground text-sm mt-1">Broadcast high-impact system alert banners or dispatch simulated informational email campaigns.</p>
         </div>
         {canManage && activeTab === "banners" && (
@@ -231,7 +231,7 @@ export default function AnnouncementsManager() {
           ) : listData.announcements.length === 0 ? (
             <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
               <Megaphone className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-              <h3 className="font-bold text-foreground text-base">No Announcements Broadcasted</h3>
+              <h3 className="text-foreground">No Announcements Broadcasted</h3>
               <p className="text-xs text-muted-foreground mt-1">Initialize alert banners for system maintenance or software updates.</p>
             </div>
           ) : (
@@ -272,7 +272,7 @@ export default function AnnouncementsManager() {
                         )}
                       </div>
 
-                      <h3 className="text-base font-bold text-foreground">{ann.title}</h3>
+                      <h3 className="text-foreground">{ann.title}</h3>
                       <p className="text-muted-foreground text-xs leading-relaxed font-semibold">{ann.message}</p>
 
                       <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] text-muted-foreground">
@@ -306,7 +306,7 @@ export default function AnnouncementsManager() {
                   <Mail className="h-5 w-5" />
                 </div>
                 <div>
-                  <CardTitle className="text-base font-bold text-foreground">Simulated Email Broadcast</CardTitle>
+                  <CardTitle className="text-foreground">Simulated Email Broadcast</CardTitle>
                   <CardDescription className="text-xs text-muted-foreground">
                     Compile message details to log or simulate dispatching a HTML newsletter directly to your merchant segments.
                   </CardDescription>

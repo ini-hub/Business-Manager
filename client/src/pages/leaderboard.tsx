@@ -113,7 +113,7 @@ export default function LeaderboardPage() {
           <TabsContent value="staff" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2">
                   <Trophy className="h-4 w-4 text-amber-500" /> Top Staff
                 </CardTitle>
                 <CardDescription>Ranked by points earned from sales and on-time shifts</CardDescription>
@@ -124,7 +124,7 @@ export default function LeaderboardPage() {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2">
                   <Award className="h-4 w-4" /> Badges Staff Can Earn
                 </CardTitle>
               </CardHeader>
@@ -137,7 +137,7 @@ export default function LeaderboardPage() {
           <TabsContent value="customer" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2">
                   <Medal className="h-4 w-4 text-amber-500" /> Top Customers
                 </CardTitle>
                 <CardDescription>Ranked by points earned from visits</CardDescription>
@@ -148,7 +148,7 @@ export default function LeaderboardPage() {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2">
                   <Award className="h-4 w-4" /> Badges Customers Can Earn
                 </CardTitle>
               </CardHeader>

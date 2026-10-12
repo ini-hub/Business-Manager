@@ -25,7 +25,7 @@ export function PayrollFormulaBreakdown({
   return (
     <section className="rounded-xl border bg-card p-4 md:p-5">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-base font-semibold">How commission was worked out</h2>
+        <h2 className="text-[15px] font-semibold">How commission was worked out</h2>
         <span className="text-xs text-muted-foreground">{method} · {formula}</span>
       </div>
 

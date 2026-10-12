@@ -225,7 +225,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
 
       {bundles.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold mb-2">Bundles - a shortcut, add or remove anything below</h3>
+          <h3 className="mb-2">Bundles - a shortcut, add or remove anything below</h3>
           <div className="flex flex-wrap gap-2">
             {bundles.map((b) => {
               const price = effectiveCycle === "annual" ? b.priceAnnual : b.priceMonthly;
@@ -270,7 +270,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
 
       {Object.entries(byCategory).map(([category, features]) => (
         <div key={category}>
-          <h3 className="text-sm font-semibold mb-2">{CATEGORY_LABELS[category] ?? category}</h3>
+          <h3 className="mb-2">{CATEGORY_LABELS[category] ?? category}</h3>
           <div className="space-y-2">
             {features.map((f) => {
               const purchased = purchasedSet.has(f.key);
@@ -312,7 +312,7 @@ export function FeatureAddOns({ onDone }: { onDone?: () => void } = {}) {
 
       <Card className={hasChanges ? "border-primary/40" : undefined}>
         <CardHeader>
-          <CardTitle className="text-base">
+          <CardTitle>
             {toAdd.length > 0 && `${toAdd.length} to add - ${currency} ${addTotal.toLocaleString()} /${effectiveCycle} now`}
             {toAdd.length > 0 && toRemove.length > 0 && " · "}
             {toRemove.length > 0 && `${toRemove.length} to remove at renewal`}

@@ -16,7 +16,7 @@ export function PayrollAttendanceCard({
   return (
     <section className="rounded-xl border bg-card p-4 md:p-5">
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-base font-semibold">Attendance</h2>
+        <h2 className="text-[15px] font-semibold">Attendance</h2>
         {periodDays != null && <span className="text-xs text-muted-foreground">{periodDays} days in period</span>}
       </div>
       <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">

@@ -15,6 +15,7 @@ import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import type { ExpenseCategory } from "@shared/schema";
 
+import { SectionLoader } from "@/components/ui/loader";
 export default function ExpenseCategoriesPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -113,7 +114,7 @@ export default function ExpenseCategoriesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Add New Category</CardTitle>
+          <CardTitle>Add New Category</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex gap-2">
@@ -134,11 +135,11 @@ export default function ExpenseCategoriesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Your Categories</CardTitle>
+          <CardTitle>Your Categories</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">Loading…</p>
+            <SectionLoader label="Loading…" size={32} />
           ) : userCategories.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4 text-center">No categories yet.</p>
           ) : (

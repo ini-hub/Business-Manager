@@ -177,7 +177,7 @@ export default function CustomerFormPage() {
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
         <div className="flex-1 min-w-0">
-          <h1 className="font-bold text-sm truncate">
+          <h1 className="truncate">
             {isEdit ? "Edit Customer" : "New Customer"}
           </h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>

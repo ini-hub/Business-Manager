@@ -102,7 +102,7 @@ export function WhatsAppNumberSection() {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" /> WhatsApp Number
           </CardTitle>
           {data && <Badge variant={data.status === "active" ? "default" : "outline"} className="capitalize">{data.status.replace("_", " ")}</Badge>}

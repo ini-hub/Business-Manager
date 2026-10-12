@@ -158,7 +158,7 @@ export function CapitalAssetsSettings() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-4 w-4" /> Capital Contributions</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Wallet className="h-4 w-4" /> Capital Contributions</CardTitle>
               <CardDescription>Money the owner has put into, or taken out of, the business. Drives Retained Earnings and ROI on the Balance Sheet report.</CardDescription>
             </div>
             <Dialog open={capitalOpen} onOpenChange={setCapitalOpen}>
@@ -221,7 +221,7 @@ export function CapitalAssetsSettings() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2 text-base"><Landmark className="h-4 w-4" /> Assets</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Landmark className="h-4 w-4" /> Assets</CardTitle>
               <CardDescription>Cash on hand, equipment, and other things the business owns. Manually tracked — not auto-updated by sales.</CardDescription>
             </div>
             <Dialog open={assetOpen} onOpenChange={setAssetOpen}>
@@ -289,7 +289,7 @@ export function CapitalAssetsSettings() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2 text-base"><HandCoins className="h-4 w-4" /> Liabilities</CardTitle>
+              <CardTitle className="flex items-center gap-2"><HandCoins className="h-4 w-4" /> Liabilities</CardTitle>
               <CardDescription>Loans, payables, and other amounts the business owes.</CardDescription>
             </div>
             <Dialog open={liabilityOpen} onOpenChange={setLiabilityOpen}>

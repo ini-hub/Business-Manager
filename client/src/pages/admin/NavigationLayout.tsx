@@ -135,7 +135,7 @@ export default function NavigationLayout() {
     <div className="space-y-6 max-w-4xl">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Navigation</h1>
+          <h1>Navigation</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Choose which pages each role's sidebar shows, how they are grouped and in what order. This applies to every business.
           </p>

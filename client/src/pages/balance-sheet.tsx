@@ -176,7 +176,7 @@ export default function BalanceSheetPage() {
           {isLoading && <SheetBody currency={storeCurrency} isLoading />}
           {consolidated?.currencies.map((c) => (
             <section key={c.currency} className="space-y-4" data-testid={`balance-sheet-${c.currency}`}>
-              <h2 className="text-base font-semibold">
+              <h2 className="text-[15px] font-semibold">
                 {c.currency} · {c.storeCount} {c.storeCount === 1 ? "store" : "stores"}
               </h2>
               <SheetBody data={c} currency={c.currency} isLoading={false} />

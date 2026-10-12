@@ -104,7 +104,7 @@ export function Paywall({ business }: { business: Business | null | undefined })
           <div className="rounded-full bg-destructive/10 p-3">
             <Lock className="h-6 w-6 text-destructive" />
           </div>
-          <h1 className="text-[26px] font-bold">
+          <h1>
             {isNonPayment ? "Your subscription payment failed" : "This account has been suspended"}
           </h1>
           <p className="text-muted-foreground max-w-md">

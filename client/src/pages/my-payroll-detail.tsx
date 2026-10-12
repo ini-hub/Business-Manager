@@ -102,7 +102,7 @@ export default function MyPayrollDetailPage() {
 
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-[26px] font-bold">My Payroll Breakdown</h1>
+          <h1>My Payroll Breakdown</h1>
           <p className="text-muted-foreground mt-0.5">
             {period && (
               <>{format(parseISO(period.startDate), "MMM d")} – {format(parseISO(period.endDate), "MMM d, yyyy")}</>

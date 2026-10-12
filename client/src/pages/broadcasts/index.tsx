@@ -112,14 +112,14 @@ export default function BroadcastsPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <MessageSquare className="h-5 w-5 text-primary" />
-        <h1 className="text-lg font-bold">WhatsApp Broadcasts</h1>
+        <h1>WhatsApp Broadcasts</h1>
       </div>
 
       <TemplateManagerSection storeId={storeId} />
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">New Broadcast</CardTitle>
+          <CardTitle>New Broadcast</CardTitle>
           <CardDescription>Send a personalized, template-based WhatsApp message to selected customers.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -199,7 +199,7 @@ export default function BroadcastsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Past Broadcasts</CardTitle>
+          <CardTitle>Past Broadcasts</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {broadcasts.length === 0 && <p className="text-sm text-muted-foreground">No broadcasts sent yet.</p>}

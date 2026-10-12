@@ -69,7 +69,7 @@ export default function BillingPayments() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Billing Payments</h1>
+        <h1 className="text-foreground">Billing Payments</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Every subscription payment attempt across all businesses - initial checkouts and automatic renewals.
         </p>
@@ -111,7 +111,7 @@ export default function BillingPayments() {
       ) : payments.length === 0 ? (
         <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
           <CreditCard className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-bold text-foreground text-base">No payments yet</h3>
+          <h3 className="text-foreground">No payments yet</h3>
           <p className="text-xs text-muted-foreground mt-1">Payments will show up here as businesses check out.</p>
         </div>
       ) : (

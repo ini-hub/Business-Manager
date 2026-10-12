@@ -81,7 +81,7 @@ export function CustomerPhonesCard({ customer, canManage, onMerge }: Props) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2">
           <Phone className="h-4 w-4" /> Phone numbers
         </CardTitle>
       </CardHeader>

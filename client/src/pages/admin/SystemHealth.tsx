@@ -102,7 +102,7 @@ export default function SystemHealth() {
       {/* Title block */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Platform Diagnostics & Health</h1>
+          <h1 className="text-foreground">Platform Diagnostics & Health</h1>
           <p className="text-muted-foreground text-sm mt-1">Live latency, error and delivery measurements for the selected period. Latency percentiles are approximate (bucketed).</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
@@ -222,7 +222,7 @@ export default function SystemHealth() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl lg:col-span-2 overflow-hidden shadow-2xl">
           <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
-            <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+            <CardTitle className="text-foreground tracking-wide flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-primary" />
               API Percentile Latency Timeline (p50, p95, p99)
             </CardTitle>
@@ -265,7 +265,7 @@ export default function SystemHealth() {
         <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden flex flex-col justify-between shadow-2xl">
           <div>
             <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
-              <CardTitle className="text-sm font-bold text-foreground tracking-wide">Infrastructure Subsystems</CardTitle>
+              <CardTitle className="text-foreground tracking-wide">Infrastructure Subsystems</CardTitle>
             </CardHeader>
             <CardContent className="pt-6 space-y-4">
               <div className="flex items-center justify-between p-4 bg-background/50 border border-border rounded-2xl">
@@ -300,7 +300,7 @@ export default function SystemHealth() {
       {/* Slowest endpoints */}
       <Card className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl overflow-hidden shadow-2xl" data-testid="health-endpoints">
         <CardHeader className="bg-background/20 p-6 border-b border-border/40">
-          <CardTitle className="text-base font-bold text-foreground">Slowest Endpoints</CardTitle>
+          <CardTitle className="text-foreground">Slowest Endpoints</CardTitle>
           <CardDescription className="text-xs text-muted-foreground">
             Ranked by total time the server spent on the route. A high statements-per-request figure on a busy route usually means a query is running once per row (N+1). Percentiles are approximate (bucketed).
           </CardDescription>
@@ -346,7 +346,7 @@ export default function SystemHealth() {
       <Card className="bg-card/40 backdrop-blur border border-border/80 rounded-2xl overflow-hidden shadow-2xl animate-in fade-in duration-300">
         <CardHeader className="bg-background/20 p-6 border-b border-border/40 flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base font-bold text-foreground">Server Error Log</CardTitle>
+            <CardTitle className="text-foreground">Server Error Log</CardTitle>
             <CardDescription className="text-xs text-muted-foreground">
               5xx responses across all organisations. The list is held in memory, so it only covers errors since the server last restarted.
             </CardDescription>

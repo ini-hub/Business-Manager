@@ -95,7 +95,7 @@ function SettingsSection({
   return (
     <section className="space-y-3">
       <div>
-        <h2 className="flex items-center gap-2 text-base font-semibold">
+        <h2 className="text-[15px] font-semibold flex items-center gap-2">
           {title}
           {badge && (
             <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-500/20 dark:text-amber-200">
@@ -133,7 +133,7 @@ export default function SettingsIndexPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-[26px] font-bold tracking-tight">Settings</h1>
+          <h1>Settings</h1>
           <p className="text-sm text-muted-foreground">
             Manage your business configuration, stores, and compliance settings.
           </p>

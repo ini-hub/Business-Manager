@@ -313,7 +313,7 @@ export default function CustomerInsights() {
               {/* Trend Chart */}
               <Card className="border-primary/10 shadow-sm">
                 <CardHeader>
-                  <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                  <CardTitle className="flex items-center justify-between">
                     <span>Acquisition vs Retention Over Time</span>
                     <Badge variant="outline" className="text-[11px] font-normal text-muted-foreground">Last 6 Months</Badge>
                   </CardTitle>
@@ -367,7 +367,7 @@ export default function CustomerInsights() {
                 {/* Acquisition Drivers */}
                 <Card className="border-primary/10 shadow-sm">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2">
                       <ArrowUpRight className="h-4 w-4 text-primary" />
                       Top Acquisition Drivers
                     </CardTitle>
@@ -406,7 +406,7 @@ export default function CustomerInsights() {
                 {/* Retention Drivers */}
                 <Card className="border-primary/10 shadow-sm">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2">
                       <RotateCcw className="h-4 w-4 text-emerald-500" />
                       Top Retention Drivers
                     </CardTitle>

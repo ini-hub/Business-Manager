@@ -53,7 +53,7 @@ export default function OverCapReport() {
     <div className="space-y-4 p-4 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Over-cap businesses</h1>
+          <h1>Over-cap businesses</h1>
           <p className="text-sm text-muted-foreground">Past their limit but keeping what they have. Unlimited plans are excluded.</p>
         </div>
         <div className="flex items-center gap-2">

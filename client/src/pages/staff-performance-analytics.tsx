@@ -235,7 +235,7 @@ export default function StaffPerformanceAnalyticsPage() {
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <CardTitle className="text-base">{metricLabel} by staff member</CardTitle>
+              <CardTitle>{metricLabel} by staff member</CardTitle>
               <CardDescription>
                 {selectedMetric === "attendance"
                   ? "Share of recorded days each person was present"
@@ -319,7 +319,7 @@ export default function StaffPerformanceAnalyticsPage() {
       {/* All metrics side by side */}
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-base">All metrics side by side</CardTitle>
+          <CardTitle>All metrics side by side</CardTitle>
           <span className="hidden text-xs text-muted-foreground sm:inline">Click a column to sort</span>
         </CardHeader>
         <CardContent className="p-0">

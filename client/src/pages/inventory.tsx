@@ -84,6 +84,7 @@ import {
   formatStockAlertCopy
 } from "@/lib/inventory-metrics";
 
+import { SectionLoader } from "@/components/ui/loader";
 type ProductWithVariants = Product & { variants?: Inventory[]; stockStatus?: string; margin?: number; storeName?: string; costPrice?: number; sellingPrice?: number; quantity?: number; sku?: string; barcode?: string; unit?: string; reorderPoint?: number; hasSales?: boolean };
 
 // Type and low-stock used to be tabs; they are filters now. Old ?view= values still resolve (see filtersFromLegacyView).
@@ -989,7 +990,7 @@ export default function InventoryPage() {
           {!draftsStoreId ? (
             <div className="py-12 text-center text-muted-foreground">Select a single store to see its drafts.</div>
           ) : isLoadingDrafts ? (
-            <div className="py-12 text-center text-muted-foreground">Loading drafts…</div>
+            <SectionLoader label="Loading drafts…" size={32} />
           ) : draftsList.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">No drafts. Use “Save draft” while adding an item.</div>
           ) : (
@@ -1018,7 +1019,7 @@ export default function InventoryPage() {
             <span>Archived items are hidden from active inventory and cannot be sold. Restore them to make them active again.</span>
           </div>
           {isLoadingArchived ? (
-            <div className="flex items-center justify-center py-12 text-muted-foreground">Loading archived items…</div>
+            <SectionLoader label="Loading archived items…" size={32} />
           ) : archivedList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
               <Archive className="h-10 w-10 opacity-30" />

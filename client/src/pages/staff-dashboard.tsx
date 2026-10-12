@@ -90,7 +90,7 @@ export default function StaffDashboard() {
           <span className="md:hidden">{format(now, "EEEE, d MMMM")}</span>
           <span className="hidden md:inline">{format(now, "EEEE, d MMMM yyyy")}</span>
         </p>
-        <h1 className="text-[26px] font-bold tracking-tight md:text-[26px]" data-testid="text-greeting">
+        <h1 data-testid="text-greeting">
           {greeting}, {name}
         </h1>
       </div>
@@ -143,7 +143,7 @@ export default function StaffDashboard() {
         <Card className="self-start">
           <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
             <div>
-              <CardTitle className="text-base">Upcoming bookings</CardTitle>
+              <CardTitle>Upcoming bookings</CardTitle>
               <CardDescription className="hidden md:block">Next up first</CardDescription>
             </div>
             <Link href="/bookings" className="text-sm font-semibold text-primary hover:underline">View all</Link>
@@ -191,7 +191,7 @@ export default function StaffDashboard() {
           {/* Pay is a door into the payroll module, not the point of the page. */}
           <Card data-testid="card-pay">
             <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
+              <CardTitle className="flex items-center gap-2">
                 <Wallet className="h-4 w-4 text-muted-foreground" /> Pay
               </CardTitle>
               <Link href="/staff/payroll" className="text-sm font-semibold text-primary hover:underline" data-testid="link-payment-history">
@@ -217,7 +217,7 @@ export default function StaffDashboard() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
+              <CardTitle className="flex items-center gap-2">
                 <Trophy className="h-4 w-4 text-amber-500" /> Achievements
               </CardTitle>
               <Link href="/leaderboard" className="text-sm font-semibold text-primary hover:underline">Leaderboard</Link>

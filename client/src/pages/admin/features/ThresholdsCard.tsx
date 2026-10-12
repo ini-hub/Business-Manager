@@ -80,7 +80,7 @@ export function ThresholdsCard({ canEdit, initialCap, startOpen }: { canEdit: bo
     <section className="rounded-2xl border border-border/80 bg-card/40 p-4 sm:p-5 space-y-4" aria-labelledby="thr-h" data-testid="thresholds-card">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div>
-          <h2 id="thr-h" className="text-base font-bold text-foreground">Cap thresholds</h2>
+          <h2 id="thr-h" className="text-[15px] font-semibold text-foreground">Cap thresholds</h2>
           <p className="text-xs text-muted-foreground mt-0.5">Any capped feature can have paid thresholds above its free cap. Pick the cap, then add a limit.</p>
         </div>
         {canEdit && !adding && (
@@ -130,7 +130,7 @@ export function ThresholdsCard({ canEdit, initialCap, startOpen }: { canEdit: bo
           onSubmit={(e) => { e.preventDefault(); if (canAdd) add.mutate(); }}
           aria-label={`New threshold for ${cap.label}`}
         >
-          <h3 className="text-sm font-bold text-foreground">New threshold for {cap.label}</h3>
+          <h3 className="text-foreground">New threshold for {cap.label}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1">
               <Label className="text-xs" htmlFor="thr-limit">Limit</Label>

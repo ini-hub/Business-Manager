@@ -113,7 +113,7 @@ export default function VendorFormPage() {
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
         <div className="flex-1 min-w-0">
-          <h1 className="font-bold text-sm truncate">{isEdit ? "Edit Vendor" : "New Vendor"}</h1>
+          <h1 className="truncate">{isEdit ? "Edit Vendor" : "New Vendor"}</h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>
         </div>
         <Button size="sm" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="shrink-0">

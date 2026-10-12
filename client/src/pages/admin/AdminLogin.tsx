@@ -129,7 +129,7 @@ export default function AdminLogin() {
           <div className="inline-flex items-center justify-center p-3 bg-card border border-border rounded-2xl mb-4 shadow-xl">
             <Shield className="h-10 w-10 text-primary animate-pulse" />
           </div>
-          <h1 className="text-[26px] font-bold tracking-tight text-foreground">
+          <h1 className="text-foreground">
             Business Manager
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Super Admin Operations Center</p>

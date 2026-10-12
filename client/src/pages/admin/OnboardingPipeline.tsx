@@ -72,7 +72,7 @@ export default function OnboardingPipeline() {
   return (
     <div className="space-y-8 font-sans">
       <div>
-        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Onboarding Funnel</h1>
+        <h1 className="text-foreground">Onboarding Funnel</h1>
         <p className="text-muted-foreground text-sm mt-1">
           Monitor merchant onboarding conversions, identify drop-offs, and assist stuck accounts.
         </p>
@@ -129,7 +129,7 @@ export default function OnboardingPipeline() {
                 <CardHeader className="bg-card/40 p-4 flex flex-row items-center justify-between gap-3 border-b border-border/40">
                   <div className="flex items-center gap-3 min-w-0">
                     <Building className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <CardTitle className="text-sm font-bold text-foreground truncate">{org.name}</CardTitle>
+                    <CardTitle className="text-foreground truncate">{org.name}</CardTitle>
                   </div>
                   <Badge variant="outline" className="bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-400 border-none text-[11px] font-bold uppercase shrink-0">
                     {org.stage}

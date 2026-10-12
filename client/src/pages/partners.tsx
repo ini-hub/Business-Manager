@@ -213,7 +213,7 @@ export default function PartnersPage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Connect with a business</CardTitle>
+          <CardTitle>Connect with a business</CardTitle>
           <CardDescription>Enter their partner code, or give them yours.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -252,7 +252,7 @@ export default function PartnersPage() {
       {engagement && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base"><Award className="h-4 w-4" /> Your standing</CardTitle>
+            <CardTitle className="flex items-center gap-2"><Award className="h-4 w-4" /> Your standing</CardTitle>
             <CardDescription>Partners see this before they trade with you.</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-2">
@@ -269,7 +269,7 @@ export default function PartnersPage() {
 
       {incoming.length > 0 && (
         <Card>
-          <CardHeader className="pb-3"><CardTitle className="text-base">Requests waiting for you</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardTitle>Requests waiting for you</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {incoming.map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-3 rounded-md border p-3">

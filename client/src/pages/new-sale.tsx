@@ -1543,7 +1543,7 @@ export default function NewSale() {
           <div className="flex-1 overflow-y-auto space-y-4 pb-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base font-medium flex items-center gap-2">
+              <CardTitle className="font-medium flex items-center gap-2">
                 <ShoppingCart className="h-4 w-4" />
                 Cart ({cart.length} items)
               </CardTitle>
@@ -1927,7 +1927,7 @@ export default function NewSale() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base font-medium">Checkout Details</CardTitle>
+              <CardTitle className="font-medium">Checkout Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">

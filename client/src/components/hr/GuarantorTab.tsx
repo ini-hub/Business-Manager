@@ -202,7 +202,7 @@ export function GuarantorTab({ staffId, basePath }: { staffId: string; basePath:
   if (signingLink) {
     return (
       <Card>
-        <CardHeader><CardTitle className="text-base">Guarantor link sent</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Guarantor link sent</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           <p className="text-sm text-muted-foreground">
             {emailSent && `We've emailed the signing link to ${guarantorContactEmail}. `}
@@ -253,7 +253,7 @@ function GuarantorEditForm({
       } />
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Who is your guarantor?</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Who is your guarantor?</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">We'll email them a link to fill in their own details and sign. They never see or edit what you've entered above.</p>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -285,7 +285,7 @@ function PartySection({ title, party, values, onChange, onUpload, documents, ext
   const hasPhoto = documents.some((d) => d.party === party && d.docType === "photo");
   return (
     <Card>
-      <CardHeader><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
           {partyFields.map(([key, label]) => {

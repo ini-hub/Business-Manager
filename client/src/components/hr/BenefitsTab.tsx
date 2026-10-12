@@ -56,7 +56,7 @@ export function BenefitsTab({ staffId }: { staffId: string }) {
     <div className="space-y-6">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Dependants</CardTitle>
+          <CardTitle>Dependants</CardTitle>
           <Dialog open={depOpen} onOpenChange={setDepOpen}>
             <DialogTrigger asChild><Button size="sm" variant="outline" data-testid="button-add-dependant"><Plus className="h-4 w-4 mr-1" />Add</Button></DialogTrigger>
             <DialogContent>
@@ -93,7 +93,7 @@ export function BenefitsTab({ staffId }: { staffId: string }) {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base">Estate Beneficiaries</CardTitle>
+            <CardTitle>Estate Beneficiaries</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">Total allocated: {totalPct}% {totalPct < 100 && `(${(100 - totalPct).toFixed(2)}% remaining)`}</p>
           </div>
           <Dialog open={benOpen} onOpenChange={setBenOpen}>

@@ -16,6 +16,7 @@ import { StatusBadge, type BadgeTone } from "@/components/admin/StatusBadge";
 import type { Paginated } from "@/lib/paginated";
 import type { FeatureDetailData } from "./detailTypes";
 
+import { SectionLoader } from "@/components/ui/loader";
 interface Holder { organisationId: string; name: string; source: string; status: string; removalEffectiveAt: string | null; since: string }
 type Counts = Record<string, number>;
 
@@ -94,7 +95,7 @@ export function AccessTab({ data, canGrant }: { data: FeatureDetailData; canGran
         {canGrant && <Button className="rounded-xl h-11 sm:h-10" onClick={() => setGranting(true)}>Grant to a business</Button>}
       </div>
 
-      {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : error ? (
+      {isLoading ? <SectionLoader label="Loading…" size={32} /> : error ? (
         <p className="text-sm text-rose-700 dark:text-rose-300" role="alert">Couldn't load who has this. <button className="underline" onClick={() => refetch()}>Retry</button></p>
       ) : (result?.data.length ?? 0) === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center">{debounced || source !== "all" ? "No business matches." : "No business has this feature yet."}</p>

@@ -45,7 +45,7 @@ export function BookingSidebar({ form, nextLabel, onNext, onBack, backLabel, isS
       aria-label="Booking summary"
       className="w-full lg:w-[340px] flex-shrink-0 rounded-xl border bg-card p-5 flex flex-col gap-4 lg:sticky lg:top-6 h-fit"
     >
-      <h2 className="text-base font-bold">Booking summary</h2>
+      <h2 className="text-[15px] font-semibold">Booking summary</h2>
       <dl className="flex flex-col gap-3 text-sm">
         <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Type</dt>

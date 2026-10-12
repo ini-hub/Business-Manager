@@ -42,6 +42,7 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import type { Store, Staff } from "@shared/schema";
 import { fetchAllStaff } from "@/lib/staff-api";
 
+import { SectionLoader } from "@/components/ui/loader";
 const storeFormSchema = z.object({
   name: z.string().min(1, "Store name is required").max(200, "Name is too long"),
   code: z.string()
@@ -185,7 +186,7 @@ export default function StoreFormPage() {
     : null;
 
   if (storeId && isLoadingStore) {
-    return <div className="flex items-center justify-center min-h-[400px]">Loading...</div>;
+    return <SectionLoader label="Loading..." size={32} className="min-h-[400px]" />;
   }
 
   if (!isOwner) {

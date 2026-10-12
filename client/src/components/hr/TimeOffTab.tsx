@@ -127,7 +127,7 @@ export function TimeOffTab({ staffId, storeId, canManage }: { staffId: string; s
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Requests</CardTitle>
+          <CardTitle>Requests</CardTitle>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild><Button size="sm" variant="outline" data-testid="button-request-time-off"><Plus className="h-4 w-4 mr-1" />Request time off</Button></DialogTrigger>
             <DialogContent>
@@ -184,7 +184,7 @@ export function TimeOffTab({ staffId, storeId, canManage }: { staffId: string; s
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Upcoming Public Holidays</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Upcoming Public Holidays</CardTitle></CardHeader>
         <CardContent className="space-y-1">
           {holidays.map((h) => (
             <div key={h.id} className="text-sm flex items-center justify-between gap-2">
@@ -240,7 +240,7 @@ export function TimeOffTab({ staffId, storeId, canManage }: { staffId: string; s
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Balance History</CardTitle>
+          <CardTitle>Balance History</CardTitle>
           <Select value={historyFilter} onValueChange={setHistoryFilter}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>

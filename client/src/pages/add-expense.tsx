@@ -224,7 +224,7 @@ export default function AddExpensePage() {
             {/* Form Fields Card */}
             <Card className="xl:col-span-2 shadow-sm border border-border/80">
               <CardHeader className="bg-muted/30 border-b pb-4">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
                   <Wallet className="h-4 w-4 text-primary" />
                   Expense Details
                 </CardTitle>
@@ -493,7 +493,7 @@ export default function AddExpensePage() {
               {form.watch("paymentMethod") === "split" && (
                 <Card className="border border-border/80 shadow-sm animate-in fade-in duration-200">
                   <CardHeader className="bg-amber-500/5 border-b pb-4">
-                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2">
                       <Plus className="h-4 w-4 text-amber-600" />
                       Configure Split Outflows
                     </CardTitle>
@@ -589,7 +589,7 @@ export default function AddExpensePage() {
               {/* Action Card */}
               <Card className="border border-border/80 shadow-sm">
                 <CardHeader className="bg-primary/5 border-b pb-4">
-                  <CardTitle className="text-sm font-semibold">Expense Summary</CardTitle>
+                  <CardTitle>Expense Summary</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6 space-y-4">
                   <div className="space-y-2">

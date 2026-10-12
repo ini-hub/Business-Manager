@@ -270,7 +270,7 @@ export function AttendanceLog({ storeId, staff }: { storeId: string; staff: Staf
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Attendance log</CardTitle>
+          <CardTitle>Attendance log</CardTitle>
           <CardDescription>One card per staff member — open one to see their weeks, most recent first.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

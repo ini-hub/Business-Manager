@@ -77,7 +77,7 @@ export default function Dashboard() {
       {/* Top Welcome Title Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Platform Overview</h1>
+          <h1 className="text-foreground">Platform Overview</h1>
           <p className="text-muted-foreground text-sm mt-1">Real-time enterprise metrics and business operations monitoring.</p>
         </div>
         <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground bg-muted border border-border rounded-xl px-3 py-2 self-start md:self-auto shadow-inner">
@@ -181,7 +181,7 @@ export default function Dashboard() {
         {/* Business Growth Chart */}
         <Card className="bg-card backdrop-blur border-card-border rounded-2xl lg:col-span-2 overflow-hidden">
           <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
-            <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+            <CardTitle className="text-foreground tracking-wide flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-primary" />
               Business Registration Trend (Last 30 Days)
             </CardTitle>
@@ -218,7 +218,7 @@ export default function Dashboard() {
         {/* Daily Checkout Activity */}
         <Card className="bg-card backdrop-blur border-card-border rounded-2xl overflow-hidden">
           <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
-            <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+            <CardTitle className="text-foreground tracking-wide flex items-center gap-2">
               <CreditCard className="h-4 w-4 text-primary" />
               Sales Volume & GMV (Weekly)
             </CardTitle>
@@ -256,7 +256,7 @@ export default function Dashboard() {
         {/* Live Operations Feed */}
         <Card className="bg-card backdrop-blur border-card-border rounded-2xl lg:col-span-2 overflow-hidden">
           <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
-            <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+            <CardTitle className="text-foreground tracking-wide flex items-center gap-2">
               <Activity className="h-4 w-4 text-primary" />
               Live Operations Feed
             </CardTitle>
@@ -298,7 +298,7 @@ export default function Dashboard() {
         <Card className="bg-card backdrop-blur border-card-border rounded-2xl overflow-hidden flex flex-col justify-between">
           <div>
             <CardHeader className="border-b border-border bg-muted/40 px-6 py-5">
-              <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+              <CardTitle className="text-foreground tracking-wide flex items-center gap-2">
                 <FileCheck className="h-4 w-4 text-primary" />
                 Operational Telemetry
               </CardTitle>

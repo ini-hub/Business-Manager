@@ -57,7 +57,7 @@ export default function DeletedBusinesses() {
   return (
     <div className="space-y-6 p-4 sm:p-8">
       <div>
-        <h1 className="text-2xl font-bold">Deleted businesses</h1>
+        <h1>Deleted businesses</h1>
         <p className="text-sm text-muted-foreground">Deleted by their owners but fully retained. Open one to see exactly what the owner saw, restore it, or delete it forever.</p>
       </div>
       <Tabs defaultValue="businesses">
@@ -73,7 +73,7 @@ export default function DeletedBusinesses() {
             <Card key={b.id} data-testid={`card-deleted-${b.id}`}>
               <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2 space-y-0">
                 <div>
-                  <CardTitle className="text-base">{b.name}</CardTitle>
+                  <CardTitle>{b.name}</CardTitle>
                   <p className="text-xs text-muted-foreground">Deleted {new Date(b.deletedAt).toLocaleString()} · {b.deletedByUserId ? "by owner" : "by admin"}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">

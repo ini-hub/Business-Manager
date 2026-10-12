@@ -57,7 +57,7 @@ export function PayrollDeductionsList({
   return (
     <section className="rounded-xl border bg-card p-4 md:p-5">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-semibold">Deductions</h2>
+        <h2 className="text-[15px] font-semibold">Deductions</h2>
         <div className="flex items-center gap-3">
           {totalDeductions > 0 && <span className="font-bold tabular-nums text-destructive">−{fmtCur(totalDeductions)}</span>}
           {!readOnly && periodStatus !== "paid" && (

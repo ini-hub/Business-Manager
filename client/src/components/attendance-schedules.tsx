@@ -93,7 +93,7 @@ export function AttendanceSchedules({ storeId, staff }: { storeId: string; staff
     <div className="space-y-6">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             <CalendarDays className="h-4 w-4" /> Weekly off-days
           </CardTitle>
           <CardDescription>
@@ -133,7 +133,7 @@ export function AttendanceSchedules({ storeId, staff }: { storeId: string; staff
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Swaps and cover days</CardTitle>
+          <CardTitle>Swaps and cover days</CardTitle>
           <CardDescription>A specific date that overrides the weekly pattern, either way.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

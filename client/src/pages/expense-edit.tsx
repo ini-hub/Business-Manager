@@ -26,6 +26,7 @@ import type { ExpenseCategory } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { useReturnTo } from "@/lib/return-to";
 
+import { SectionLoader } from "@/components/ui/loader";
 const schema = z.object({
   title: z.string().min(1, "Title is required"),
   amount: z.coerce.number().min(0),
@@ -167,7 +168,7 @@ export default function ExpenseEditPage() {
   });
 
   if (!currentStore) return <StoreRequiredAlert />;
-  if (isLoading) return <div className="py-12 text-center text-muted-foreground">Loading…</div>;
+  if (isLoading) return <SectionLoader label="Loading…" size={32} />;
 
   const watchMethod = form.watch("paymentMethod");
   const watchInvId = form.watch("inventoryId");

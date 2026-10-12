@@ -66,7 +66,7 @@ export default function AuditLogs() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Operations Audit Trail</h1>
+        <h1 className="text-foreground">Operations Audit Trail</h1>
         <p className="text-muted-foreground text-sm mt-1">Immutable ledger logging all administrative operations, resets, suspensions and configurations.</p>
       </div>
 
@@ -118,7 +118,7 @@ export default function AuditLogs() {
       ) : data.logs.length === 0 ? (
         <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
           <ShieldAlert className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-bold text-foreground text-base">No Matching Audit Entries</h3>
+          <h3 className="text-foreground">No Matching Audit Entries</h3>
           <p className="text-xs text-muted-foreground mt-1">Refine your active search criteria or target filters.</p>
         </div>
       ) : (

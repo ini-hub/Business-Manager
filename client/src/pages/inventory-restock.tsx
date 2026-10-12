@@ -23,6 +23,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { StoreRequiredAlert } from "@/components/store-required-alert";
 import { formatCurrency as fmt } from "@/lib/currency-utils";
 
+import { SectionLoader } from "@/components/ui/loader";
 export default function InventoryRestockPage() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
@@ -82,7 +83,7 @@ export default function InventoryRestockPage() {
   });
 
   if (!currentStore) return <StoreRequiredAlert />;
-  if (isLoading) return <div className="py-12 text-center text-muted-foreground">Loading…</div>;
+  if (isLoading) return <SectionLoader label="Loading…" size={32} />;
   if (!item) return <div className="py-12 text-center text-muted-foreground">Item not found.</div>;
 
   const weightedAvg =

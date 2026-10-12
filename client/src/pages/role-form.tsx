@@ -16,6 +16,7 @@ import { useState, useEffect } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { getUserFriendlyError } from "@/lib/error-utils";
 
+import { SectionLoader } from "@/components/ui/loader";
 export default function RoleFormPage() {
   const { id } = useParams<{ id?: string }>();
   const [, setLocation] = useLocation();
@@ -121,7 +122,7 @@ export default function RoleFormPage() {
   };
 
   if (id && isLoadingRoles) {
-    return <div className="flex items-center justify-center min-h-[400px]">Loading...</div>;
+    return <SectionLoader label="Loading..." size={32} className="min-h-[400px]" />;
   }
 
   if (!canManage) {

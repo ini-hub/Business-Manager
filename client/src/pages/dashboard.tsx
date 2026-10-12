@@ -400,7 +400,7 @@ export default function Dashboard() {
             {greeting}, {firstName}
             {currentStore?.id === "all" && ` · All ${stores.length} branches`}
           </p>
-          <h1 className="text-lg font-bold tracking-tight leading-tight">Dashboard</h1>
+          <h1>Dashboard</h1>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Select value={datePreset === "custom" ? undefined : datePreset} onValueChange={(v) => applyDatePreset(v as DatePreset)}>
@@ -548,7 +548,7 @@ export default function Dashboard() {
       {businessGamification && (businessGamification.points > 0 || businessGamification.badges?.length > 0) && (
         <Card>
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
-            <CardTitle className="text-sm flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2">
               <Trophy className="h-4 w-4 text-amber-500" />
               Business Milestones
             </CardTitle>
@@ -590,7 +590,7 @@ export default function Dashboard() {
       <div className="grid gap-4 sm:grid-cols-2">
         <Card className="hidden sm:block">
           <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-500" /> Stock alerts
             </CardTitle>
             <Link href="/inventory" className="text-xs text-primary font-medium hover:underline">
@@ -737,7 +737,7 @@ export default function Dashboard() {
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {greeting}, {firstName}
             </p>
-            <h1 className="mt-1 text-[26px] font-bold tracking-tight leading-none">Dashboard</h1>
+            <h1 className="mt-1 leading-none">Dashboard</h1>
             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               {stores.length > 1 && (
                 <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 font-medium text-foreground">
@@ -852,7 +852,7 @@ export default function Dashboard() {
 
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold">Revenue mix</CardTitle>
+              <CardTitle>Revenue mix</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="h-2.5 w-full rounded-full overflow-hidden bg-muted flex">
@@ -902,7 +902,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-3 gap-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2">
                 <AlertTriangle className="h-4 w-4 text-amber-500" /> Stock alerts
               </CardTitle>
               <Link href="/inventory" className="text-xs text-primary font-medium hover:underline">
@@ -949,7 +949,7 @@ export default function Dashboard() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-              <CardTitle className="text-base font-semibold">Top items</CardTitle>
+              <CardTitle>Top items</CardTitle>
               <Link href={`/profit-loss${deepLinkQuery}`} className="text-xs text-primary font-medium hover:underline">
                 Report
               </Link>
@@ -988,7 +988,7 @@ export default function Dashboard() {
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-              <CardTitle className="text-base font-semibold">Top customers</CardTitle>
+              <CardTitle>Top customers</CardTitle>
               <Link href="/customers" className="text-xs text-primary font-medium hover:underline">
                 All customers
               </Link>

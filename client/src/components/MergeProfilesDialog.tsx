@@ -167,7 +167,7 @@ export function MergeProfilesDialog({
               </div>
 
               <section className="space-y-3">
-                <h3 className="flex items-center gap-2 text-sm font-semibold">
+                <h3 className="flex items-center gap-2">
                   <User className="h-4 w-4 text-primary" aria-hidden="true" /> What to keep
                 </h3>
                 <ChoiceGroup
@@ -191,7 +191,7 @@ export function MergeProfilesDialog({
               </section>
 
               <section className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-                <h3 className="text-sm font-semibold">After the merge</h3>
+                <h3>After the merge</h3>
                 <dl className="mt-2 grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <dt className="text-xs text-muted-foreground">Loyalty points</dt>

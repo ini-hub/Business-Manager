@@ -30,6 +30,7 @@ import {
   type InventoryExportRow,
 } from "@/lib/inventory-export";
 
+import { SectionLoader } from "@/components/ui/loader";
 interface InventoryExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -248,7 +249,7 @@ export function InventoryExportDialog({
                   Include archived items
                 </Label>
                 {isLoadingArchived && includeArchived && (
-                  <p className="text-xs text-muted-foreground">Loading archived items…</p>
+                  <SectionLoader label="Loading archived items…" size={32} />
                 )}
               </div>
               <Switch

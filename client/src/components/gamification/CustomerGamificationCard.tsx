@@ -27,7 +27,7 @@ export function CustomerGamificationCard({ storeId, customerId }: { storeId: str
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2">
           <Trophy className="h-4 w-4 text-amber-500" />
           Loyalty Achievements
         </CardTitle>

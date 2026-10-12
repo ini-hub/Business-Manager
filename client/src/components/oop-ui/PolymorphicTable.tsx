@@ -63,6 +63,7 @@ import {
 import { useGatedActions } from "@/components/billing/Gated";
 import { BulkActionsBar, type BulkAction, pluralize as pluralizeNoun } from "./BulkActionsBar";
 
+import { SectionLoader } from "@/components/ui/loader";
 const getNestedValue = (obj: any, path: string): any => {
   let val = obj;
   const parts = path.split(".");
@@ -697,20 +698,11 @@ export function PolymorphicTable<T extends { id: string | number }>({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <TableRow key={i}>
-                  {multiselect && (
-                    <TableCell className="w-12 px-4 py-3 text-center">
-                      <Skeleton className="h-4 w-4 mx-auto" />
-                    </TableCell>
-                  )}
-                  {columns.map((column) => (
-                    <TableCell key={column.key}>
-                      <Skeleton className="h-5 w-full" />
-                    </TableCell>
-                  ))}
-                </TableRow>
-              ))}
+              <TableRow>
+                <TableCell colSpan={columns.length + (multiselect ? 1 : 0)} className="py-6">
+                  <SectionLoader label="Loading…" size={40} />
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </div>
@@ -925,7 +917,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
                         {emptyIcon || <PackageOpen className="h-6 w-6 opacity-70" />}
                       </div>
                       <div className="space-y-1">
-                        <h3 className="text-sm font-bold text-foreground">{emptyTitle}</h3>
+                        <h3 className="text-foreground">{emptyTitle}</h3>
                         <p className="text-xs text-muted-foreground leading-relaxed">
                           {emptyMessage || "No data records logged for this branch."}
                         </p>
@@ -999,7 +991,7 @@ export function PolymorphicTable<T extends { id: string | number }>({
                   {emptyIcon || <PackageOpen className="h-6 w-6 opacity-70" />}
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-sm font-bold text-foreground">{emptyTitle}</h3>
+                  <h3 className="text-foreground">{emptyTitle}</h3>
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     {emptyMessage || "No data records logged for this branch."}
                   </p>

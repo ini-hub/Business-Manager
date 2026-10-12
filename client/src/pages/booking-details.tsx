@@ -64,6 +64,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useStore } from "@/lib/store-context";
 import { formatAmount } from "@/lib/currency-utils";
 
+import { SectionLoader } from "@/components/ui/loader";
 const safeFormat = (dateValue: any, formatStr: string) => {
   if (!dateValue) return "N/A";
   try {
@@ -165,7 +166,7 @@ export default function BookingDetailsPage() {
   });
 
   if (isLoading) {
-    return <div className="p-8 text-center text-muted-foreground animate-pulse">Loading booking details...</div>;
+    return <SectionLoader label="Loading booking details..." size={32} />;
   }
 
   if (error || !booking) {
@@ -428,7 +429,7 @@ export default function BookingDetailsPage() {
           {booking.rescheduleHistory && booking.rescheduleHistory.length > 0 && (
             <BaseCard>
               <CardHeader>
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2">
                   <Clock className="h-4 w-4" /> Reschedule History
                 </CardTitle>
               </CardHeader>
@@ -458,7 +459,7 @@ export default function BookingDetailsPage() {
         <div className="space-y-6">
           <BaseCard>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+              <CardTitle className="text-muted-foreground flex items-center gap-2">
                 <User className="h-4 w-4" /> Customer Details
               </CardTitle>
             </CardHeader>
@@ -480,7 +481,7 @@ export default function BookingDetailsPage() {
 
           <BaseCard>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+              <CardTitle className="text-muted-foreground flex items-center gap-2">
                 <UserCog className="h-4 w-4" /> Assigned Staff
               </CardTitle>
             </CardHeader>
@@ -509,7 +510,7 @@ export default function BookingDetailsPage() {
 
           <BaseCard>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+              <CardTitle className="text-muted-foreground flex items-center gap-2">
                 <CreditCard className="h-4 w-4" /> Payment Details
               </CardTitle>
             </CardHeader>
@@ -529,7 +530,7 @@ export default function BookingDetailsPage() {
 
           <BaseCard>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+              <CardTitle className="text-muted-foreground flex items-center gap-2">
                 <MessageSquare className="h-4 w-4" /> Reminders & Notes
               </CardTitle>
             </CardHeader>

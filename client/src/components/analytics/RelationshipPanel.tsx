@@ -73,7 +73,7 @@ export function RelationshipPanel({ query, measures }: RelationshipPanelProps) {
     <Card>
       <CardHeader className="space-y-3 pb-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm font-medium">Relationships</CardTitle>
+          <CardTitle className="font-medium">Relationships</CardTitle>
           <Tabs value={mode} onValueChange={(v) => setMode(v as typeof mode)}>
             <TabsList className="h-8">
               <TabsTrigger value="scatter" className="text-xs h-6">

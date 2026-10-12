@@ -222,8 +222,9 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Headings follow the type scale: 26/700 page, 18/700 section, 15/600 card. */
-  h1 { @apply text-[26px] leading-8 font-bold tracking-[-0.01em]; }
+  /* Headings follow the type scale: page 18/700 on phones and 26/700 from 640px, 18/700 section,
+     15/600 card. Don't set a text size on a heading: it should come from here (see typeScale.test.ts). */
+  h1 { @apply text-lg leading-6 sm:text-[26px] sm:leading-8 font-bold tracking-[-0.01em]; }
   h2 { @apply text-lg font-bold; }
   h3 { @apply text-[15px] font-semibold; }
 }

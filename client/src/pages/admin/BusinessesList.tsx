@@ -142,7 +142,7 @@ export default function BusinessesList() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Businesses Directory</h1>
+          <h1 className="text-foreground">Businesses Directory</h1>
           <p className="text-muted-foreground text-sm mt-1">Audit platform accounts, check gross sales volume, and configure access.</p>
         </div>
       </div>
@@ -228,7 +228,7 @@ export default function BusinessesList() {
       ) : data.businesses.length === 0 ? (
         <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
           <Building className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-bold text-foreground text-base">No Businesses Found</h3>
+          <h3 className="text-foreground">No Businesses Found</h3>
           <p className="text-xs text-muted-foreground mt-1">Adjust search parameters or verify registration timeline.</p>
         </div>
       ) : (

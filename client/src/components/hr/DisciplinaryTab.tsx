@@ -38,7 +38,7 @@ export function DisciplinaryTab({ staffId, canManage }: { staffId: string; canMa
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">Disciplinary Records</CardTitle>
+        <CardTitle>Disciplinary Records</CardTitle>
         {canManage && <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm" variant="outline" data-testid="button-add-disciplinary-record"><Plus className="h-4 w-4 mr-1" />Add</Button></DialogTrigger>
           <DialogContent>

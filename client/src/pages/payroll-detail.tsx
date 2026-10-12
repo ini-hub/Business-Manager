@@ -239,7 +239,7 @@ export default function PayrollDetailPage() {
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-[26px] font-bold truncate">{staffName}</h1>
+              <h1 className="truncate">{staffName}</h1>
               {period?.status === "paid" && (
                 <Badge variant="outline" className="gap-1 text-emerald-700 bg-emerald-50 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200">
                   <Lock className="h-3 w-3" /> Paid and locked

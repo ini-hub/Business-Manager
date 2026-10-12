@@ -149,7 +149,7 @@ export default function UsersList() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Users Directory</h1>
+        <h1 className="text-foreground">Users Directory</h1>
         <p className="text-muted-foreground text-sm mt-1">Audit merchant team structures, override forgotten credentials, and check anomalous login indicators.</p>
       </div>
 
@@ -241,7 +241,7 @@ export default function UsersList() {
           ) : usersData.users.length === 0 ? (
             <div className="text-center py-16 bg-muted/40 border border-border rounded-2xl">
               <User className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-              <h3 className="font-bold text-foreground text-base">No Users Found</h3>
+              <h3 className="text-foreground">No Users Found</h3>
               <p className="text-xs text-muted-foreground mt-1">Adjust search parameters or check administrative sync filters.</p>
             </div>
           ) : (
@@ -357,7 +357,7 @@ export default function UsersList() {
           ) : !flaggedData?.flagged || flaggedData.flagged.length === 0 ? (
             <div className="text-center py-16 bg-muted/40 border border-border rounded-2xl">
               <Shield className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-              <h3 className="font-bold text-foreground text-base">No Flagged Accounts Scanned</h3>
+              <h3 className="text-foreground">No Flagged Accounts Scanned</h3>
               <p className="text-xs text-muted-foreground mt-1">Excellent! No account logins meet security audit alarm triggers.</p>
             </div>
           ) : (
@@ -367,7 +367,7 @@ export default function UsersList() {
                   <CardHeader className="bg-muted/40 p-4 border-b border-border flex flex-row items-center justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <AlertTriangle className="h-4 w-4 text-rose-500 dark:text-rose-400 shrink-0" />
-                      <CardTitle className="text-sm font-bold text-foreground truncate">{f.name}</CardTitle>
+                      <CardTitle className="text-foreground truncate">{f.name}</CardTitle>
                     </div>
                     <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none text-[11px] font-bold uppercase shrink-0">
                       {f.flag}

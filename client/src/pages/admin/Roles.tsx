@@ -104,7 +104,7 @@ export default function Roles() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-semibold">Roles</h1>
+        <h1>Roles</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Choose what the built-in roles can use in every business, and publish role templates. Owners always have full access. Businesses build their own
           roles on top of these, and can only give a role access they hold themselves (managers) or any access (owners).
@@ -124,7 +124,7 @@ export default function Roles() {
         <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div>
-              <CardTitle className="text-base flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2">
                 {system.name} {system.customised && <Badge variant="secondary">Customised</Badge>}
               </CardTitle>
               <CardDescription>Pages this role can open. Removing a page also removes it from their sidebar.</CardDescription>
@@ -159,7 +159,7 @@ export default function Roles() {
           {editing && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{editing.id ? "Edit template" : "New template"}</CardTitle>
+                <CardTitle>{editing.id ? "Edit template" : "New template"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <Input value={editing.name} maxLength={60} placeholder="e.g. Cashier" onChange={(e) => setEditing({ ...editing, name: e.target.value })} aria-label="Template name" />

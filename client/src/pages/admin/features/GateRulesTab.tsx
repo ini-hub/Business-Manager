@@ -6,6 +6,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { GateRulesDialog } from "../GateRulesDialog";
 import type { FeatureDetailData } from "./detailTypes";
 
+import { SectionLoader } from "@/components/ui/loader";
 interface Rule { id: string; kind: string; methods: string; pattern: string; status: "draft" | "active"; note: string | null }
 interface Baseline { kind: string; methods: string; pattern: string }
 
@@ -29,8 +30,8 @@ export function GateRulesTab({ data, canEdit }: { data: FeatureDetailData; canEd
       )}
 
       <section className="space-y-2" aria-labelledby="own-rules">
-        <h3 id="own-rules" className="text-sm font-bold text-foreground">Rules added here</h3>
-        {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : error ? (
+        <h3 id="own-rules" className="text-foreground">Rules added here</h3>
+        {isLoading ? <SectionLoader label="Loading…" size={32} /> : error ? (
           <p className="text-sm text-rose-700 dark:text-rose-300" role="alert">Couldn't load the rules.</p>
         ) : rules.length === 0 ? (
           <p className="text-sm text-muted-foreground">None. The built-in rules below still apply.</p>
@@ -53,7 +54,7 @@ export function GateRulesTab({ data, canEdit }: { data: FeatureDetailData; canEd
       </section>
 
       <section className="space-y-2" aria-labelledby="built-in">
-        <h3 id="built-in" className="text-sm font-bold text-foreground">Built into the code</h3>
+        <h3 id="built-in" className="text-foreground">Built into the code</h3>
         {baseline.length === 0 ? (
           <p className="text-sm text-muted-foreground">No built-in rules for this feature.</p>
         ) : (

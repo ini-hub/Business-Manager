@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 
+import { SectionLoader } from "@/components/ui/loader";
 type Report = {
   sales: { lines: number; subtotal: number; tax: number; gross: number };
   returns: { count: number; total: number; tax: number; byMethod: { method: string; count: number; total: number }[] };
@@ -87,7 +88,7 @@ export default function TaxReturnsReportPage() {
             </Button>
           </div>
 
-          {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {isLoading && <SectionLoader label="Loading…" size={32} />}
           {isError && <p className="text-sm text-destructive">Couldn't load the report.</p>}
 
           {data && (
@@ -100,7 +101,7 @@ export default function TaxReturnsReportPage() {
               </div>
 
               <Card>
-                <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Receipt className="h-4 w-4" aria-hidden="true" />Refunds by payout method</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="flex items-center gap-2"><Receipt className="h-4 w-4" aria-hidden="true" />Refunds by payout method</CardTitle></CardHeader>
                 <CardContent className="divide-y">
                   {data.returns.byMethod.length === 0 && <p className="text-sm text-muted-foreground">No returns in this period.</p>}
                   {data.returns.byMethod.map((m) => (
@@ -113,7 +114,7 @@ export default function TaxReturnsReportPage() {
               </Card>
 
               <Card>
-                <CardHeader><CardTitle className="text-sm flex items-center gap-2"><AlertTriangle className="h-4 w-4" aria-hidden="true" />Checked against the bank</CardTitle></CardHeader>
+                <CardHeader><CardTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" aria-hidden="true" />Checked against the bank</CardTitle></CardHeader>
                 <CardContent className="space-y-3 text-sm">
                   {!data.bank.linked ? (
                     <p className="text-muted-foreground">Link a bank account in Settings to have transfer refunds and receipts checked against real bank movements.</p>

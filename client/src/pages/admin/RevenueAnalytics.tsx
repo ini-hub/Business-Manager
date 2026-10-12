@@ -70,7 +70,7 @@ export default function RevenueAnalytics() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Platform Financials</h1>
+        <h1 className="text-foreground">Platform Financials</h1>
         <p className="text-muted-foreground text-sm mt-1">Audit platform Monthly Recurring Revenue (MRR), ARR ratios, subscriber conversions, and top performers.</p>
       </div>
 
@@ -120,7 +120,7 @@ export default function RevenueAnalytics() {
         {/* Top Performing Businesses */}
         <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl lg:col-span-2 overflow-hidden shadow-xl">
           <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
-            <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+            <CardTitle className="text-foreground tracking-wide flex items-center gap-2">
               <Building className="h-4 w-4 text-primary" />
               Top 5 Merchants by Sales (GMV)
             </CardTitle>
@@ -152,7 +152,7 @@ export default function RevenueAnalytics() {
         {/* Plan Subscription Splits */}
         <Card className="bg-card/40 backdrop-blur border-border/80 rounded-2xl overflow-hidden shadow-xl flex flex-col justify-between">
           <CardHeader className="border-b border-border/80 bg-background/20 px-6 py-5">
-            <CardTitle className="text-sm font-bold text-foreground tracking-wide flex items-center gap-2">
+            <CardTitle className="text-foreground tracking-wide flex items-center gap-2">
               <Percent className="h-4 w-4 text-primary" />
               Subscriber Split
             </CardTitle>

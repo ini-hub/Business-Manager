@@ -35,7 +35,7 @@ export function PayrollTransactionBreakdown({
     <Card>
       <CardHeader className="pb-2 cursor-pointer select-none hover:bg-muted/10 transition-colors rounded-t-lg" onClick={onToggle}>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
+          <CardTitle className="font-medium flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
             Service Revenue Share by Transaction ({breakdown.length})
           </CardTitle>

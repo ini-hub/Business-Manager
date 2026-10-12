@@ -163,7 +163,7 @@ export default function PartnerTransferNewPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">1. {isRequest ? "Who are you asking?" : "Who is it for?"}</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle>1. {isRequest ? "Who are you asking?" : "Who is it for?"}</CardTitle></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="partner">Partner business</Label>
@@ -184,7 +184,7 @@ export default function PartnerTransferNewPage() {
       </Card>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">2. {isRequest ? "What do you need?" : "What are you sending?"}</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle>2. {isRequest ? "What do you need?" : "What are you sending?"}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="item-search">{isRequest ? "Add what you need" : "Add an item"}</Label>
@@ -266,7 +266,7 @@ export default function PartnerTransferNewPage() {
       </Card>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">3. How will it be settled?</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle>3. How will it be settled?</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2 sm:grid-cols-3">
             {(["none", "payable", "return_in_kind"] as const).map((t) => (

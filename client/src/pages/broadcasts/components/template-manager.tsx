@@ -105,7 +105,7 @@ export function TemplateManagerSection({ storeId }: { storeId: string | undefine
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex items-center gap-2">
               <FileText className="h-4 w-4" /> WhatsApp Templates
             </CardTitle>
             <CardDescription>

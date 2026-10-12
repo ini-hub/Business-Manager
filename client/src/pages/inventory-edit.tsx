@@ -37,6 +37,7 @@ import { useQuery as useSettingsQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { z } from "zod";
 
+import { SectionLoader } from "@/components/ui/loader";
 const editFormSchema = z.object({
   name: z.string().min(1, "Name is required"),
   category: z.string().optional().nullable(),
@@ -367,7 +368,7 @@ export default function InventoryEditPage() {
   });
 
   if (!currentStore) return <StoreRequiredAlert />;
-  if (isLoading || (item && !formReady)) return <div className="py-12 text-center text-muted-foreground">Loading…</div>;
+  if (isLoading || (item && !formReady)) return <SectionLoader label="Loading…" size={32} />;
 
   const watchType = form.watch("type");
   const watchCost = form.watch("costPrice") ?? 0;
@@ -400,7 +401,7 @@ export default function InventoryEditPage() {
   // ── Shared bits ─────────────────────────────────────────────────────────
   const cardTitle = (title: string, hint?: string) => (
     <div className="space-y-0.5">
-      <h2 className="text-base font-semibold leading-tight">{title}</h2>
+      <h2 className="text-[15px] font-semibold leading-tight">{title}</h2>
       {hint && <p className="text-sm text-muted-foreground">{hint}</p>}
     </div>
   );
@@ -1001,7 +1002,7 @@ export default function InventoryEditPage() {
         </Breadcrumb>
         <div>
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[26px] font-bold leading-tight">{variantMode ? primaryVariant?.name : item?.name}</h1>
+            <h1>{variantMode ? primaryVariant?.name : item?.name}</h1>
             <Badge variant="secondary">{typeLabel}</Badge>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">

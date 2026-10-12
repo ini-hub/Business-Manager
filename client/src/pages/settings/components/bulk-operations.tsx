@@ -239,7 +239,7 @@ export function BulkOperationsSection() {
           <Card className="p-8 border-dashed flex flex-col items-center justify-center text-center space-y-3">
             <Database className="h-10 w-10 text-muted-foreground/50" />
             <div>
-              <CardTitle className="text-base font-semibold">No Active Store Location Selected</CardTitle>
+              <CardTitle>No Active Store Location Selected</CardTitle>
               <CardDescription className="max-w-sm mt-1">
                 You need to select or create a store location first under the <strong>Stores Management</strong> tab to use bulk operations.
               </CardDescription>
@@ -250,7 +250,7 @@ export function BulkOperationsSection() {
             {/* Bulk Staff */}
             <Card className="border border-muted/60 shadow-xs flex flex-col justify-between">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2 font-semibold text-primary">
+                <CardTitle className="flex items-center gap-2 text-primary">
                   <User className="h-4 w-4" />
                   Bulk Staff Operations
                 </CardTitle>
@@ -278,7 +278,7 @@ export function BulkOperationsSection() {
             {/* Bulk Expenses */}
             <Card className="border border-muted/60 shadow-xs flex flex-col justify-between">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2 font-semibold text-primary">
+                <CardTitle className="flex items-center gap-2 text-primary">
                   <Coins className="h-4 w-4" />
                   Bulk Expense Operations
                 </CardTitle>
@@ -306,7 +306,7 @@ export function BulkOperationsSection() {
             {/* Bulk Inventory */}
             <Card className="border border-muted/60 shadow-xs flex flex-col justify-between">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2 font-semibold text-primary">
+                <CardTitle className="flex items-center gap-2 text-primary">
                   <Store className="h-4 w-4" />
                   Bulk Inventory Operations
                 </CardTitle>
@@ -334,7 +334,7 @@ export function BulkOperationsSection() {
             {/* Bulk Customers */}
             <Card className="border border-muted/60 shadow-xs flex flex-col justify-between">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2 font-semibold text-primary">
+                <CardTitle className="flex items-center gap-2 text-primary">
                   <UserPlus className="h-4 w-4" />
                   Bulk Customer Operations
                 </CardTitle>

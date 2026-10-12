@@ -366,7 +366,7 @@ export function PageHeader({ title, description, actions, isLoading = false, com
             </div>
           )}
           <div className="flex items-center gap-2 min-w-0">
-            <h1 className={cn("font-bold tracking-[-0.01em] truncate", compact ? "text-lg sm:text-[26px]" : "text-[26px]")}>
+            <h1 className="truncate">
               {title}
             </h1>
             {guide && !compact && (
@@ -381,7 +381,7 @@ export function PageHeader({ title, description, actions, isLoading = false, com
             )}
           </div>
           {description && (
-            <p className={cn("text-muted-foreground", compact ? "text-xs sm:text-sm truncate" : "text-sm")}>
+            <p className={cn("text-xs text-muted-foreground sm:text-sm", compact && "truncate")}>
               {description}
             </p>
           )}
@@ -401,7 +401,7 @@ export function PageHeader({ title, description, actions, isLoading = false, com
                 <BookOpen className="h-4.5 w-4.5" />
               </div>
               <div>
-                <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
+                <h3 className="text-foreground flex items-center gap-2">
                   {guide.title}
                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium tracking-wide uppercase">
                     {guide.badge}

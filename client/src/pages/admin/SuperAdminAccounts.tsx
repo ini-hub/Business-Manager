@@ -178,7 +178,7 @@ export default function SuperAdminAccounts() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Super Admin Accounts</h1>
+          <h1 className="text-foreground">Super Admin Accounts</h1>
           <p className="text-muted-foreground text-sm mt-1">Manage internal operations clearance levels, resets, and MFA configuration keys.</p>
         </div>
         {isSuperAdmin && (
@@ -214,7 +214,7 @@ export default function SuperAdminAccounts() {
               <Card key={adm.id} className="bg-card/40 border-border/80 rounded-2xl overflow-hidden hover:border-border/80 transition-all duration-300 flex flex-col justify-between shadow-xl">
                 <CardHeader className="bg-background/20 p-5 border-b border-border/40 flex flex-row items-start justify-between gap-3">
                   <div className="space-y-1 min-w-0">
-                    <CardTitle className="text-sm font-bold text-foreground truncate flex items-center gap-2">
+                    <CardTitle className="text-foreground truncate flex items-center gap-2">
                       <Shield className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
                       {adm.name}
                     </CardTitle>

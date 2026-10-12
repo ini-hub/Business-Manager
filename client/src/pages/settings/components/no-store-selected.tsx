@@ -11,7 +11,7 @@ export function NoStoreSelected({ icon: Icon, action }: { icon: typeof Store; ac
     <Card className="p-8 border-dashed flex flex-col items-center justify-center text-center space-y-3">
       <Icon className="h-10 w-10 text-muted-foreground/50" />
       <div>
-        <CardTitle className="text-base font-semibold">No Active Store Location Selected</CardTitle>
+        <CardTitle>No Active Store Location Selected</CardTitle>
         <CardDescription className="max-w-sm mt-1">
           Select a store from the store switcher to {action}.
         </CardDescription>

@@ -33,7 +33,7 @@ export default function VerifyPayslipPage() {
             <div className="flex justify-center">
               <ShieldX className="h-14 w-14 text-destructive" />
             </div>
-            <h1 className="text-lg font-bold text-destructive">Payslip Not Found</h1>
+            <h1 className="text-destructive">Payslip Not Found</h1>
             <p className="text-sm text-muted-foreground">
               This document ID does not match any payslip in our records. It may be invalid,
               expired, or the document may have been tampered with.
@@ -63,7 +63,7 @@ export default function VerifyPayslipPage() {
             <ShieldCheck className="h-8 w-8 text-green-400 shrink-0" />
             <div>
               <p className="text-xs text-blue-200 uppercase tracking-wide font-medium">Verified Document</p>
-              <h1 className="text-lg font-bold leading-tight">Original Payslip</h1>
+              <h1>Original Payslip</h1>
             </div>
           </div>
         </div>

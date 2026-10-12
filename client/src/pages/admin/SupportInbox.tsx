@@ -462,7 +462,7 @@ export default function SupportInbox() {
     <div className="space-y-4 font-sans">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-[26px] font-bold text-foreground tracking-tight">Support Inbox</h1>
+          <h1 className="text-foreground">Support Inbox</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Locked-out owners with no pay-to-unlock path, and general Help &amp; Support requests.
           </p>
@@ -519,7 +519,7 @@ export default function SupportInbox() {
             ) : filtered.length === 0 ? (
               <div className="text-center py-16 px-4">
                 <MessageSquareWarning className="h-9 w-9 text-muted-foreground mx-auto mb-3" />
-                <h3 className="font-semibold text-foreground text-sm">
+                <h3 className="text-foreground">
                   {search.trim() ? "No matches" : tab === "open" ? "Inbox zero" : "No resolved conversations yet"}
                 </h3>
                 {!search.trim() && tab === "open" && (

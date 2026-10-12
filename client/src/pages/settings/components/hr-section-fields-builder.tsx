@@ -113,7 +113,7 @@ export function HrSectionFieldsBuilder({ section, onBack }: { section: "personal
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Fields</CardTitle>
+          <CardTitle>Fields</CardTitle>
           <div className="flex gap-2">
             {reorderMode && (
               <Button

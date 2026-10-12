@@ -50,7 +50,7 @@ import { useStore } from "@/lib/store-context";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { type TransactionWithRelations, VOID_REASON_PRESETS } from "@shared/schema";
-import { Spinner } from "@/components/ui/loader";
+import { Spinner, SectionLoader } from "@/components/ui/loader";
 import { formatAmount } from "@/lib/currency-utils";
 
 export default function TransactionDetailsPage() {
@@ -547,7 +547,7 @@ export default function TransactionDetailsPage() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
         </IconButton>
-        <h1 className="text-lg font-bold tracking-tight flex-1 min-w-0 truncate">
+        <h1 className="flex-1 min-w-0 truncate">
           Receipt {tx.checkout?.receiptNumber}
         </h1>
         {canViewActivity && (
@@ -690,7 +690,7 @@ export default function TransactionDetailsPage() {
                   <Separator />
                   <div className="space-y-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      <h3 className="text-foreground flex items-center gap-2">
                         <ShoppingBag className="h-4 w-4 text-primary" />
                         {receiptDetails.items.length} item{receiptDetails.items.length === 1 ? "" : "s"}
                       </h3>
@@ -833,7 +833,7 @@ export default function TransactionDetailsPage() {
                 <>
                   <Separator />
                   <div className="space-y-2">
-                    <h3 className="text-sm font-semibold text-foreground">Payments</h3>
+                    <h3 className="text-foreground">Payments</h3>
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between">
                         <span className="flex items-center gap-2 text-muted-foreground capitalize">
@@ -962,7 +962,7 @@ export default function TransactionDetailsPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {isActivityLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading activity…</p>
+                    <SectionLoader label="Loading activity…" size={32} />
                   ) : activityLogs.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No activity recorded for this transaction yet.</p>
                   ) : (
@@ -1033,7 +1033,7 @@ export default function TransactionDetailsPage() {
             <div className="hidden lg:block">
               <BaseCard hoverElevation>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                  <CardTitle className="text-muted-foreground flex items-center gap-2">
                     <Edit className="h-4 w-4" />
                     Corrections
                   </CardTitle>
@@ -1053,7 +1053,7 @@ export default function TransactionDetailsPage() {
           {((canManage && !isVoided && !isFullyReturned && tx.checkout?.paymentStatus === "pending") || (isVoided && canManage)) && (
           <BaseCard hoverElevation>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+              <CardTitle className="text-muted-foreground flex items-center gap-2">
                 <Edit className="h-4 w-4" />
                 Actions
               </CardTitle>

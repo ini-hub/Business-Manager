@@ -87,7 +87,7 @@ function SectionCard({
             {n}
           </div>
           <div>
-            <h2 className="text-base font-semibold leading-tight">{title}</h2>
+            <h2 className="text-[15px] font-semibold leading-tight">{title}</h2>
             {description && <p className="text-sm text-muted-foreground mt-0.5">{description}</p>}
           </div>
         </div>
@@ -931,7 +931,7 @@ export default function InventoryNewPage() {
             {usesVariants && (
               <div className="space-y-3 border-t pt-5">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <h3 className="text-sm font-semibold">Variants</h3>
+                  <h3>Variants</h3>
                   <div className="flex items-center gap-3 text-xs">
                     <span className="text-muted-foreground">
                       {selectedCombos.length} of {allCombos.length} from your options
@@ -1118,7 +1118,7 @@ export default function InventoryNewPage() {
         <aside className="hidden lg:block lg:sticky lg:top-20">
           <Card>
             <CardContent className="pt-6 space-y-5">
-              <h2 className="text-base font-semibold">Summary</h2>
+              <h2 className="text-[15px] font-semibold">Summary</h2>
               <dl className="space-y-3 text-sm">
                 {summaryRows.map(([label, value]) => (
                   <div key={label} className="flex items-baseline justify-between gap-4">

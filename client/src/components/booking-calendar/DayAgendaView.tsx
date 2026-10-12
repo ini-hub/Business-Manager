@@ -26,7 +26,7 @@ export function DayAgendaView({ day, bookings, currency, staffNames, onBookingCl
   return (
     <section className="space-y-2 lg:rounded-2xl lg:border lg:border-border lg:bg-card lg:p-4" aria-label="Day bookings">
       <div className="flex items-baseline justify-between px-1">
-        <h3 className="text-base font-semibold">{format(day, "EEEE d MMMM")}</h3>
+        <h3>{format(day, "EEEE d MMMM")}</h3>
         <span className="text-sm text-muted-foreground">
           {sorted.length} booking{sorted.length === 1 ? "" : "s"}
           {sorted.length > 0 && ` · ${formatCurrency(sorted.reduce((t, b) => t + Number(b.totalPrice ?? 0), 0), currency)}`}

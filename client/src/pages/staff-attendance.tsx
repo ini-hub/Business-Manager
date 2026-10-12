@@ -154,7 +154,7 @@ export default function StaffAttendancePage() {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Your attendance log</CardTitle>
+          <CardTitle>Your attendance log</CardTitle>
           <CardDescription>{filter.range.label} · grouped by week, most recent first.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -216,7 +216,7 @@ export default function StaffAttendancePage() {
       {requests.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex items-center gap-2">
               <CalendarClock className="h-4 w-4" /> My attendance requests
             </CardTitle>
           </CardHeader>

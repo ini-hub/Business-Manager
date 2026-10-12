@@ -202,7 +202,7 @@ export default function MyPerformancePage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex items-center gap-2">
               <Wrench className="h-4 w-4 text-muted-foreground" />
               Services Performed
               {!breakdownLoading && <Badge variant="secondary">{breakdown?.services.length ?? 0}</Badge>}
@@ -259,7 +259,7 @@ export default function MyPerformancePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex items-center gap-2">
               <ShoppingBag className="h-4 w-4 text-muted-foreground" />
               Products Sold
               {!breakdownLoading && <Badge variant="secondary">{breakdown?.products.length ?? 0}</Badge>}

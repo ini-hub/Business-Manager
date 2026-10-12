@@ -219,12 +219,12 @@ export default function PlatformSettings() {
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <Settings className="h-5 w-5 text-primary" />
-        <h1 className="text-lg font-bold">Platform Settings</h1>
+        <h1>Platform Settings</h1>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             <Clock className="h-4 w-4" /> Trial Length
           </CardTitle>
           <CardDescription>How many days a new business gets full access to every feature, free. Only affects new signups.</CardDescription>
@@ -257,7 +257,7 @@ export default function PlatformSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             <Clock className="h-4 w-4" /> Grace Period
           </CardTitle>
           <CardDescription>
@@ -285,7 +285,7 @@ export default function PlatformSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             <CreditCard className="h-4 w-4" /> Platform Payment Gateway
           </CardTitle>
           <CardDescription>
@@ -333,7 +333,7 @@ export default function PlatformSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             <Phone className="h-4 w-4" /> WhatsApp Business Platform
           </CardTitle>
           <CardDescription>
@@ -377,7 +377,7 @@ export default function PlatformSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" /> SMS & WhatsApp
           </CardTitle>
           <CardDescription>

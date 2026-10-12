@@ -147,7 +147,7 @@ export default function GuarantorSignPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Your Details</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Your Details</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               {GUARANTOR_FIELDS.map(([key, label]) => (
@@ -174,7 +174,7 @@ export default function GuarantorSignPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Business/Employment Details</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Business/Employment Details</CardTitle></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {BUSINESS_FIELDS.map(([key, label]) => (
               <div key={key} className="space-y-2">
@@ -186,7 +186,7 @@ export default function GuarantorSignPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Eligibility</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Eligibility</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {ELIGIBILITY_ITEMS.map((item) => (
               <label key={item} className="flex items-start gap-2 text-sm">
@@ -198,7 +198,7 @@ export default function GuarantorSignPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Identification</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Identification</CardTitle></CardHeader>
           <CardContent className="flex flex-wrap gap-3">
             <UploadTile label={idDoc ? "ID uploaded ✓" : "Upload ID"} busy={uploading === "id"} onSelect={(f) => upload("id", f)} />
             <UploadTile label={photoDoc ? "Photo uploaded ✓" : "Upload Photo (optional)"} busy={uploading === "photo"} onSelect={(f) => upload("photo", f)} />
@@ -207,7 +207,7 @@ export default function GuarantorSignPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Declaration &amp; Signature</CardTitle>
+            <CardTitle>Declaration &amp; Signature</CardTitle>
             <CardDescription>
               I hereby confirm that {version.employeeOtherNames} {version.employeeSurname} has been known to me and I declare that all
               information and ID tendered for this purpose are valid and authentic. I confirm that the employee is of
@@ -250,7 +250,7 @@ export default function GuarantorSignPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Decline instead</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Decline instead</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <Textarea placeholder="Reason (optional)" value={declineReason} onChange={(e) => setDeclineReason(e.target.value)} />
             <Button variant="outline" onClick={() => declineMutation.mutate()} disabled={declineMutation.isPending} data-testid="button-decline-guarantor-form">
@@ -284,7 +284,7 @@ function CenteredMessage({ icon, title, description }: { icon?: React.ReactNode;
     <div className="flex items-center justify-center min-h-screen px-4">
       <div className="text-center space-y-2 max-w-sm">
         {icon && <div className="flex justify-center">{icon}</div>}
-        <h1 className="text-lg font-bold">{title}</h1>
+        <h1>{title}</h1>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
     </div>

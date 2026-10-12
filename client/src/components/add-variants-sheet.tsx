@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { cartesianProduct, comboKey, comboLabel } from "@/lib/variant-combos";
 import { MAX_VARIANTS_PER_PRODUCT } from "@shared/constants";
 
+import { SectionLoader } from "@/components/ui/loader";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface Attribute {
@@ -522,9 +523,7 @@ export function AddVariantsSheet({
         {/* ── Scrollable body ──────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           {loadingParent && (
-            <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
-              Loading…
-            </div>
+            <SectionLoader label="Loading…" size={32} />
           )}
 
           {!loadingParent && (

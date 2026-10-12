@@ -325,7 +325,7 @@ export default function QuoteDetailPage() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-[26px] sm:text-[26px] font-bold font-mono tracking-tight">{quote.quoteRef}</h1>
+              <h1 className="font-mono">{quote.quoteRef}</h1>
               <Badge variant="secondary" className={STATUS_STYLE[status] ?? ""}>{STATUS_LABEL[status] ?? quote.status}</Badge>
             </div>
             <p className="hidden sm:block text-sm text-muted-foreground mt-1">
@@ -520,7 +520,7 @@ export default function QuoteDetailPage() {
           <div id="quote-printable-invoice" className="bg-white text-black p-8">
             <div className="flex justify-between items-start border-b pb-6">
               <div>
-                <h1 className="text-[26px] font-bold tracking-tight text-primary uppercase">{currentStore?.name}</h1>
+                <h1 className="text-primary uppercase">{currentStore?.name}</h1>
                 <p className="text-xs text-gray-500 mt-1">PROFORMA ESTIMATE proposal</p>
                 <p className="text-sm font-semibold text-gray-700 mt-2">Ref: {quote.quoteRef}</p>
               </div>

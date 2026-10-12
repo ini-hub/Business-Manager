@@ -59,7 +59,7 @@ export function JobTab({ staffId, canManage }: { staffId: string; canManage: boo
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader><CardTitle className="text-base">Current Job</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Current Job</CardTitle></CardHeader>
         <CardContent>
           <DynamicFieldForm staffId={staffId} section="job_current" basePath="/api/hr" />
         </CardContent>
@@ -67,7 +67,7 @@ export function JobTab({ staffId, canManage }: { staffId: string; canManage: boo
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Job Information History</CardTitle>
+          <CardTitle>Job Information History</CardTitle>
           {canManage && (
             <Dialog open={jobDialogOpen} onOpenChange={setJobDialogOpen}>
               <DialogTrigger asChild><Button size="sm" variant="outline" data-testid="button-add-job-info"><Plus className="h-4 w-4 mr-1" />Add</Button></DialogTrigger>
@@ -106,7 +106,7 @@ export function JobTab({ staffId, canManage }: { staffId: string; canManage: boo
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Additional Job Information</CardTitle>
+          <CardTitle>Additional Job Information</CardTitle>
           {canManage && (
             <Dialog open={additionalDialogOpen} onOpenChange={setAdditionalDialogOpen}>
               <DialogTrigger asChild><Button size="sm" variant="outline" data-testid="button-add-additional-job-info"><Plus className="h-4 w-4 mr-1" />Add</Button></DialogTrigger>

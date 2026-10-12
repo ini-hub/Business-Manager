@@ -70,7 +70,7 @@ export default function ServerError({ error, reset }: ServerErrorProps) {
           </div>
           
           <div className="space-y-2">
-            <h1 className="text-[26px] font-bold tracking-tight bg-gradient-to-b from-foreground to-foreground/80 bg-clip-text">
+            <h1 className="bg-gradient-to-b from-foreground to-foreground/80 bg-clip-text">
               Something went wrong
             </h1>
             <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">

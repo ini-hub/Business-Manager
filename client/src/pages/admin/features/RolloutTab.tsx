@@ -85,7 +85,7 @@ export function RolloutTab({ data, canEdit }: { data: FeatureDetailData; canEdit
 
       {choice === "scoped" && (
         <section className="rounded-2xl border border-border/80 bg-card/40 p-4 sm:p-5 space-y-3" aria-labelledby="scope-h">
-          <h3 id="scope-h" className="text-sm font-bold text-foreground">Businesses in scope</h3>
+          <h3 id="scope-h" className="text-foreground">Businesses in scope</h3>
           <OrgPicker value={orgs} onChange={setOrgs} disabled={!canEdit} />
           <p className="text-xs text-muted-foreground">Only real businesses can be added. {orgs.length === 0 && "Pick at least one, or choose Off."}</p>
         </section>

@@ -483,7 +483,7 @@ export default function LegalDocuments() {
     <div className="space-y-6 font-sans">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-[26px] font-bold text-foreground tracking-tight flex items-center gap-3">
+          <h1 className="text-foreground flex items-center gap-3">
             <FileText className="h-7 w-7 text-primary" />
             Legal Documents
           </h1>
@@ -515,7 +515,7 @@ export default function LegalDocuments() {
       ) : documents.length === 0 ? (
         <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
           <FileText className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-          <h3 className="font-bold text-foreground text-base">No legal documents yet</h3>
+          <h3 className="text-foreground">No legal documents yet</h3>
           <p className="text-xs text-muted-foreground mt-1">Add a section to get started.</p>
         </div>
       ) : (
@@ -537,7 +537,7 @@ export default function LegalDocuments() {
             <TabsContent key={doc.documentType} value={doc.documentType}>
               <Card className="bg-card/40 border border-border/80 rounded-2xl shadow-xl overflow-hidden">
                 <CardHeader className="bg-background/20 p-6 border-b border-border/40">
-                  <CardTitle className="text-base font-bold text-foreground flex items-center gap-2">
+                  <CardTitle className="text-foreground flex items-center gap-2">
                     {doc.title}
                     {doc.archivedAt && (
                       <Badge variant="outline" className="text-[11px] font-bold uppercase text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800">

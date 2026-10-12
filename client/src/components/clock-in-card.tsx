@@ -230,7 +230,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
     return (
       <Card data-testid="card-clock-in-unavailable">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             <Clock className="h-4 w-4" /> Attendance
           </CardTitle>
         </CardHeader>
@@ -448,7 +448,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
           <div className="grid md:grid-cols-2">
             <div className="space-y-4 p-5 sm:p-8">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold sm:text-base">Today's attendance</h2>
+                <h2 className="text-[15px] font-semibold">Today's attendance</h2>
                 {statusBadge}
               </div>
               <div className="flex items-end justify-between gap-3 md:block">
@@ -515,7 +515,7 @@ export function ClockInCard({ variant = "default" }: { variant?: "default" | "he
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <CardTitle className="flex items-center gap-2 text-base">
+              <CardTitle className="flex items-center gap-2">
                 <Clock className="h-4 w-4" /> Attendance
               </CardTitle>
               <CardDescription>

@@ -189,7 +189,7 @@ export default function PayrollAdvanceDetailPage() {
       />
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Advance</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Advance</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <Field label="Staff">
             <Link href={`/staffs/${adv.staffId}/edit`} className="text-primary hover:underline">{adv.staffName ?? "—"}</Link>
@@ -228,7 +228,7 @@ export default function PayrollAdvanceDetailPage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Payroll recovery</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Payroll recovery</CardTitle></CardHeader>
         <CardContent>
           {adv.recoveries.length === 0 ? (
             <p className="text-sm text-muted-foreground">

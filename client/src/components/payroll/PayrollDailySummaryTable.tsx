@@ -36,7 +36,7 @@ export function PayrollDailySummaryTable({
     <section className="rounded-xl border bg-card overflow-hidden">
       <div className="p-4 md:p-5 space-y-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <h2 className="text-base font-semibold">Day by day</h2>
+          <h2 className="text-[15px] font-semibold">Day by day</h2>
           <p className="text-xs text-muted-foreground max-w-md md:text-right">
             Revenue share is this staff member's slice of each service price, the base for commission. It is not pay.
           </p>

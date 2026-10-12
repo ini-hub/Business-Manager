@@ -526,7 +526,7 @@ export default function AttendancePage() {
             <Card key={s.id}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <CardTitle className="flex items-center gap-2">
                     <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
                       {s.name.charAt(0)}
                     </div>

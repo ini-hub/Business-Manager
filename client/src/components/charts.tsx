@@ -67,7 +67,7 @@ export function SalesTrendChart({ storeId, businessId, currency, storeCurrency =
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold">Sales Trends ({periodLabel})</CardTitle>
+          <CardTitle>Sales Trends ({periodLabel})</CardTitle>
         </CardHeader>
         <CardContent>
           <Skeleton className="h-[250px] w-full" />
@@ -80,7 +80,7 @@ export function SalesTrendChart({ storeId, businessId, currency, storeCurrency =
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold">Sales Trends ({periodLabel})</CardTitle>
+          <CardTitle>Sales Trends ({periodLabel})</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex h-[250px] items-center justify-center text-muted-foreground">
@@ -94,7 +94,7 @@ export function SalesTrendChart({ storeId, businessId, currency, storeCurrency =
   return (
     <Card>
       <CardHeader className={headerRight ? "flex flex-row items-center justify-between gap-4 space-y-0" : undefined}>
-        <CardTitle className="text-base font-semibold">Sales Trends ({periodLabel})</CardTitle>
+        <CardTitle>Sales Trends ({periodLabel})</CardTitle>
         {headerRight}
       </CardHeader>
       <CardContent>

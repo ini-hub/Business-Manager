@@ -529,7 +529,7 @@ export default function VendorsPage() {
       {selectedVendorId && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               Bills — {vendors.find(v => v.id === selectedVendorId)?.name}
             </CardTitle>

@@ -46,7 +46,7 @@ export function TrialWelcomeNotice({ business }: { business: Business }) {
               <div className="rounded-full bg-primary/10 p-3">
                 <PartyPopper className="h-6 w-6 text-primary" />
               </div>
-              <h1 className="text-lg font-bold">Welcome to Kowope, {business.name}!</h1>
+              <h1>Welcome to Kowope, {business.name}!</h1>
             </div>
 
             <div className="text-left space-y-3 text-sm text-muted-foreground">

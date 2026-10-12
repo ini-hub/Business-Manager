@@ -24,7 +24,7 @@ export function SettingsPageHeader({
     <PageHeader
       title={
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-lg font-bold">{title}</span>
+          <span className="truncate">{title}</span>
           <ScopeBadge scope={scope} />
         </span>
       }

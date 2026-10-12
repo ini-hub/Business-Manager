@@ -33,6 +33,7 @@ import { getUserFriendlyError } from "@/lib/error-utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Label } from "@/components/ui/label";
 
+import { SectionLoader } from "@/components/ui/loader";
 const businessFormSchema = z.object({
   name: z.string().min(1, "Business name is required").max(200, "Name is too long"),
   address: z.string().optional().default(""),
@@ -110,7 +111,7 @@ export default function BusinessFormPage() {
   };
 
   if (isLoading) {
-    return <div className="flex items-center justify-center min-h-[400px]">Loading...</div>;
+    return <SectionLoader label="Loading..." size={32} className="min-h-[400px]" />;
   }
 
   if (!isOwner) {

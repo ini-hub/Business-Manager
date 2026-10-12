@@ -72,7 +72,7 @@ export function HrProfileConfig({ businessId }: { businessId: string }) {
   return (
     <div className="space-y-6">
       <Card>
-        <CardHeader><CardTitle className="text-base">HR Profile Sections</CardTitle><CardDescription>Enable sections and mark which ones a new staff member must complete before getting full access.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>HR Profile Sections</CardTitle><CardDescription>Enable sections and mark which ones a new staff member must complete before getting full access.</CardDescription></CardHeader>
         <CardContent className="divide-y">
           {SECTIONS.map(({ key, label }) => {
             const cfg = sections.find((s) => s.section === key);
@@ -155,7 +155,7 @@ function FieldBuilder({ businessId, section, title }: { businessId: string; sect
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild><Button size="sm" variant="outline" data-testid={`button-add-field-${section}`}><Plus className="h-4 w-4 mr-1" />Add field</Button></DialogTrigger>
           <DialogContent>

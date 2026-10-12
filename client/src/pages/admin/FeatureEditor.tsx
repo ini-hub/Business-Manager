@@ -168,7 +168,7 @@ export default function FeatureEditor() {
         <Link href={LIST_PATH} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Feature Catalog
         </Link>
-        <h1 className="text-[26px] font-bold tracking-tight mt-2">{isNew ? "Add a feature" : `Edit ${existing?.name ?? "feature"}`}</h1>
+        <h1 className="mt-2">{isNew ? "Add a feature" : `Edit ${existing?.name ?? "feature"}`}</h1>
         <p className="text-sm text-muted-foreground mt-1">
           {isNew ? "It becomes purchasable the moment it's active." : "Pricing and activation changes apply immediately, no deploy needed."}
         </p>
@@ -183,7 +183,7 @@ export default function FeatureEditor() {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Details</CardTitle>
+                <CardTitle>Details</CardTitle>
                 <CardDescription>What the feature is called and where it is listed.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -214,7 +214,7 @@ export default function FeatureEditor() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">How it's sold</CardTitle>
+                <CardTitle>How it's sold</CardTitle>
                 <CardDescription>The tier decides what else this form asks for.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -302,7 +302,7 @@ export default function FeatureEditor() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Access</CardTitle>
+                <CardTitle>Access</CardTitle>
                 <CardDescription>Where the feature shows up for a business's roles.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-1.5">
@@ -322,7 +322,7 @@ export default function FeatureEditor() {
           <aside className="space-y-4 lg:sticky lg:top-6">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Summary</CardTitle>
+                <CardTitle>Summary</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
                 <div>

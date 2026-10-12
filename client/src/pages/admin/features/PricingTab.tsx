@@ -91,7 +91,7 @@ export function PricingTab({ data, canEdit }: { data: FeatureDetailData; canEdit
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-border/80 bg-card/40 p-4 sm:p-5 space-y-4" aria-labelledby="price-h">
-        <h3 id="price-h" className="text-sm font-bold text-foreground">Price</h3>
+        <h3 id="price-h" className="text-foreground">Price</h3>
         {priced ? (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -137,7 +137,7 @@ export function PricingTab({ data, canEdit }: { data: FeatureDetailData; canEdit
       {feature.tierType === "paid_metered_limit" && isCapType(feature.limitType) && (
         <section className="rounded-2xl border border-border/80 bg-card/40 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3" aria-labelledby="thr-tab-h">
           <div className="flex-1">
-            <h3 id="thr-tab-h" className="text-sm font-bold text-foreground">Thresholds</h3>
+            <h3 id="thr-tab-h" className="text-foreground">Thresholds</h3>
             <p className="text-xs text-muted-foreground">This is a capped feature, so you can add another paid limit above its free cap.</p>
           </div>
           <Button variant="outline" className="rounded-xl h-11 sm:h-9" onClick={() => navigate(`/super-admin/features/review?cap=${feature.limitType}${canEdit ? "&add=1" : ""}`)}>
@@ -148,7 +148,7 @@ export function PricingTab({ data, canEdit }: { data: FeatureDetailData; canEdit
 
       {livePriced && (canEdit || sunset.data?.scheduled) && (
         <section className="rounded-2xl border border-border/80 bg-card/40 p-4 sm:p-5 space-y-3" aria-labelledby="life-h">
-          <h3 id="life-h" className="text-sm font-bold text-foreground">Lifecycle</h3>
+          <h3 id="life-h" className="text-foreground">Lifecycle</h3>
           {sunset.isLoading ? (
             <p className="text-sm text-muted-foreground">Checking…</p>
           ) : sunset.data?.scheduled ? (

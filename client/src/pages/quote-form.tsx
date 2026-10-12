@@ -244,7 +244,7 @@ export default function QuoteFormPage() {
       <div className={cn(builderView === "review" ? "block" : "hidden lg:block")}>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-medium flex items-center gap-2">
+            <CardTitle className="font-medium flex items-center gap-2">
               <ShoppingCart className="h-4 w-4" />
               Proposal Items ({quoteCart.length})
             </CardTitle>

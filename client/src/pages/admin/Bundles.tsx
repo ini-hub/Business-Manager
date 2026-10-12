@@ -72,7 +72,7 @@ export default function Bundles() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold"><Layers className="h-6 w-6" /> Bundles</h1>
+          <h1 className="flex items-center gap-2"><Layers className="h-6 w-6" /> Bundles</h1>
           <p className="text-sm text-muted-foreground">
             Named sets of features, discounted while a business holds all of them. They grant nothing themselves, so deleting one never removes anyone's access.
           </p>

@@ -249,7 +249,7 @@ function DashboardTile({
   return (
     <Card className={span}>
       <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium truncate">{tile.resolvedTitle}</CardTitle>
+        <CardTitle className="font-medium truncate">{tile.resolvedTitle}</CardTitle>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0 shrink-0">

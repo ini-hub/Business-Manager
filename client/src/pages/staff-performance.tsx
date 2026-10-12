@@ -440,7 +440,7 @@ export default function StaffPerformancePage() {
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <Wrench className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="font-semibold text-sm">Services Performed ({breakdownData?.services.length ?? 0})</h3>
+                  <h3>Services Performed ({breakdownData?.services.length ?? 0})</h3>
                 </div>
                 {breakdownData?.services.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">No services in this period.</p>
@@ -496,7 +496,7 @@ export default function StaffPerformancePage() {
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <ShoppingBag className="h-4 w-4 text-muted-foreground" />
-                  <h3 className="font-semibold text-sm">Products Sold ({breakdownData?.products.length ?? 0})</h3>
+                  <h3>Products Sold ({breakdownData?.products.length ?? 0})</h3>
                 </div>
                 {breakdownData?.products.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">No products in this period.</p>

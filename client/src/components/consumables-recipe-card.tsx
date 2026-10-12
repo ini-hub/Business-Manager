@@ -13,6 +13,7 @@ import { AlertTriangle, Droplets, Plus, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
+import { SectionLoader } from "@/components/ui/loader";
 interface RecipeRow {
   id: string;
   supplyInventoryId: string;
@@ -142,7 +143,7 @@ export function ConsumablesRecipeCard({ inventoryId, storeId, formatCurrency, ca
   });
 
   if (isLoading || !data) {
-    return <Card><CardContent className="py-8 text-sm text-muted-foreground">Loading recipe…</CardContent></Card>;
+    return <Card><CardContent><SectionLoader label="Loading recipe…" size={32} /></CardContent></Card>;
   }
 
   const alreadyLinked = new Set(data.recipe.map((r) => r.supplyInventoryId));

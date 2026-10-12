@@ -133,7 +133,7 @@ export function RolesPermissionsSection() {
 
       {customRoles.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold">Custom roles</h2>
+          <h2 className="text-[15px] font-semibold">Custom roles</h2>
           {customRoles.map((role) => (
             <div key={role.id} className="rounded-xl border bg-card p-4" data-testid={`custom-role-${role.id}`}>
               <div className="flex items-center justify-between gap-2">

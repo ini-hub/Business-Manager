@@ -24,7 +24,7 @@ export function StaffStoresCard({ staffId }: { staffId: string }) {
   return (
     <Card className="glassmorphism border border-border/80" data-testid="card-staff-stores">
       <CardHeader className="pb-3 border-b">
-        <CardTitle className="text-base font-semibold flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2">
           <Store className="h-4 w-4" /> Works at
         </CardTitle>
       </CardHeader>

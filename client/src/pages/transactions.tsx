@@ -42,6 +42,7 @@ import {
 } from "@/lib/sale-filters";
 import { SaleFiltersSheet, SaleSortSheet, saleSortButtonLabel } from "@/components/sale-filter-sheet";
 
+import { SectionLoader } from "@/components/ui/loader";
 const PAGE_LIMIT = 50;
 
 type SaleRow = ReturnType<typeof toSaleRow>;
@@ -776,7 +777,7 @@ export default function Transactions() {
                   so a scan of the day's activity doesn't need every field spelled out per row. */}
               <div className="lg:hidden space-y-4">
                 {isLoading ? (
-                  <p className="text-sm text-muted-foreground text-center py-8">Loading…</p>
+                  <SectionLoader label="Loading…" size={32} />
                 ) : saleGroupsByDay.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 py-10 text-center">
                     <ShoppingBag className="h-6 w-6 text-muted-foreground" />

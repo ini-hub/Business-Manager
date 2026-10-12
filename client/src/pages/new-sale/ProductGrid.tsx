@@ -318,7 +318,7 @@ export function ProductGrid({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-medium flex items-center gap-2">
+        <CardTitle className="font-medium flex items-center gap-2">
           <Package className="h-4 w-4" />
           Select Items
           {isOffline && (

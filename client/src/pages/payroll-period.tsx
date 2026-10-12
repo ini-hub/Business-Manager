@@ -49,6 +49,7 @@ import { formatCurrency as formatCurrencyUtil } from "@/lib/currency-utils";
 import { explainCommission, commissionHeadline } from "@shared/commission-explainer";
 import type { PayrollPeriod, PayrollEntryWithPay } from "@shared/schema";
 
+import { SectionLoader } from "@/components/ui/loader";
 const STATUS_CONFIG = {
   pending:  { label: "Open",  variant: "secondary" as const, color: "text-amber-700 dark:text-amber-400",   bg: "bg-amber-50 dark:bg-amber-950 border-amber-200" },
   approved: { label: "Approved", variant: "default" as const,   color: "text-blue-700 dark:text-blue-400",     bg: "bg-blue-50 dark:bg-blue-950 border-blue-200" },
@@ -373,7 +374,7 @@ export default function PayrollPeriodPage() {
               <CardContent className="pt-12 pb-12 text-center">
                 <DollarSign className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
                 {periodLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading payroll period…</p>
+                  <SectionLoader label="Loading payroll period…" size={32} />
                 ) : (
                   <>
                     <p className="text-sm text-muted-foreground">{periodError ? "This payroll period could not be found." : "Payroll period unavailable."}</p>

@@ -27,6 +27,7 @@ import { BookingFormValues } from "./types";
 import { SegmentedControl } from "./segmented-control";
 import { fetchAllStaff } from "@/lib/staff-api";
 
+import { SectionLoader } from "@/components/ui/loader";
 interface StepScheduleProps {
   form: UseFormReturn<BookingFormValues>;
   excludeBookingId?: string;
@@ -60,7 +61,7 @@ function UpcomingStaffBookings({ storeId, staffId, excludeBookingId }: { storeId
     <div className="rounded-md border bg-muted/30 p-3 text-sm" id="staff-upcoming-bookings">
       <div className="mb-2 font-medium">Upcoming bookings for this staff ({upcoming.length})</div>
       {isLoading ? (
-        <p className="text-muted-foreground">Loading...</p>
+        <SectionLoader label="Loading..." size={32} />
       ) : upcoming.length === 0 ? (
         <p className="text-muted-foreground">No upcoming bookings. This staff member is free.</p>
       ) : (

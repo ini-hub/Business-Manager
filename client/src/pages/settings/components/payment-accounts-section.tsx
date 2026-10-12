@@ -115,7 +115,7 @@ export function PaymentAccountsSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base"><Landmark className="h-4 w-4" aria-hidden="true" /> Payment accounts</CardTitle>
+        <CardTitle className="flex items-center gap-2"><Landmark className="h-4 w-4" aria-hidden="true" /> Payment accounts</CardTitle>
         <CardDescription>
           Accounts this store receives transfers into. Cashiers pick one on every transfer, and the receipt and
           reconciliation report show where the money went.

@@ -524,7 +524,7 @@ export default function InventoryDetails() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-lg font-bold leading-tight" data-testid="text-item-name">
+                <h1 data-testid="text-item-name">
                   {inventory.name}
                 </h1>
                 {inventory.productId && (
@@ -693,7 +693,7 @@ export default function InventoryDetails() {
 
                 return (
                   <div>
-                    <h3 className="text-sm font-semibold text-muted-foreground mb-3 px-0.5">Pricing</h3>
+                    <h3 className="text-muted-foreground mb-3 px-0.5">Pricing</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
                         <p className="text-xs text-muted-foreground flex items-center gap-2">
@@ -737,7 +737,7 @@ export default function InventoryDetails() {
             <>
               {/* Stock Value Summary */}
               <div>
-                <h3 className="text-sm font-semibold text-muted-foreground mb-3 px-0.5">Stock Value</h3>
+                <h3 className="text-muted-foreground mb-3 px-0.5">Stock Value</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="p-4 rounded-xl border bg-muted/20 space-y-1">
                     <p className="text-xs text-muted-foreground flex items-center gap-2">
@@ -790,7 +790,7 @@ export default function InventoryDetails() {
         <TabsContent value="restock-history" className="mt-0">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
+              <CardTitle className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 Restock History
               </CardTitle>
@@ -852,7 +852,7 @@ export default function InventoryDetails() {
           <Card>
             <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2">
                   <BarChart2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   Profitability & Sustaining Costs
                 </CardTitle>
@@ -931,7 +931,7 @@ export default function InventoryDetails() {
 
                   {/* Expenses list */}
                   <div className="space-y-3">
-                    <h3 className="text-sm font-semibold">Linked Sustaining Expenses</h3>
+                    <h3>Linked Sustaining Expenses</h3>
                     {(!sustainingCostsData?.expenses || sustainingCostsData.expenses.length === 0) ? (
                       <div className="py-10 text-center border rounded-lg bg-muted/10">
                         <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-muted/40 mb-2">
@@ -967,7 +967,7 @@ export default function InventoryDetails() {
         <TabsContent value="bundle-components" className="space-y-4 mt-0">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
+              <CardTitle className="flex items-center gap-2">
                 <Layers className="h-4 w-4 text-primary" />
                 Bundle Components
               </CardTitle>
@@ -981,7 +981,7 @@ export default function InventoryDetails() {
               ) : (
                 <div className="grid gap-5 lg:grid-cols-3">
                   <div className="lg:col-span-2 space-y-3">
-                    <h3 className="text-sm font-semibold">Active Components</h3>
+                    <h3>Active Components</h3>
                     {bundleComponents.length === 0 ? (
                       <div className="py-10 text-center border border-dashed rounded-lg bg-muted/10">
                         <Package className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
@@ -1038,7 +1038,7 @@ export default function InventoryDetails() {
 
                   <Card className="bg-muted/10 border-dashed">
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">Add Component</CardTitle>
+                      <CardTitle>Add Component</CardTitle>
                       <CardDescription className="text-xs">Link a product from stock</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -1099,7 +1099,7 @@ export default function InventoryDetails() {
           <Card>
             <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div>
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2">
                   <Layers className="h-4 w-4 text-primary" />
                   {isService ? "Service Variants" : "Product Variants"}
                 </CardTitle>
@@ -1260,7 +1260,7 @@ export default function InventoryDetails() {
         <TabsContent value="expiry-batches" className="space-y-4 mt-0">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
+              <CardTitle className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-primary" />
                 FIFO Expiry Cohorts
               </CardTitle>
@@ -1274,7 +1274,7 @@ export default function InventoryDetails() {
               ) : (
                 <div className="grid gap-5 lg:grid-cols-3">
                   <div className="lg:col-span-2 space-y-3">
-                    <h3 className="text-sm font-semibold">Active Batches</h3>
+                    <h3>Active Batches</h3>
                     {batches.length === 0 ? (
                       <div className="py-10 text-center border rounded-lg bg-muted/10">
                         <Calendar className="h-8 w-8 mx-auto mb-2 text-muted-foreground/40" />
@@ -1318,7 +1318,7 @@ export default function InventoryDetails() {
 
                   <Card className="bg-muted/10">
                     <CardHeader className="pb-3">
-                      <CardTitle className="text-sm font-semibold">Add Batch</CardTitle>
+                      <CardTitle>Add Batch</CardTitle>
                       <CardDescription className="text-xs">Log a new expiry cohort</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-3">
@@ -1381,7 +1381,7 @@ export default function InventoryDetails() {
           <TabsContent value="activity" className="mt-0">
             <Card className="border-primary/10">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-primary" />
                   Activity History
                 </CardTitle>

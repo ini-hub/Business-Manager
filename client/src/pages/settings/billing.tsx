@@ -63,7 +63,7 @@ export default function BillingSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+          <CardTitle className="flex items-center gap-2">
             Active subscription
             {trialing && <Badge variant="secondary">Trial</Badge>}
             {subscription?.status === "active" && <Badge>Active</Badge>}
@@ -104,7 +104,7 @@ export default function BillingSettingsPage() {
 
       {managingSubscription && (
         <div>
-          <h2 className="text-sm font-semibold mb-3">Features & add-ons</h2>
+          <h2 className="text-[15px] font-semibold mb-3">Features & add-ons</h2>
           <p className="text-xs text-muted-foreground mb-3">
             Everything you currently have access to is checked. Uncheck what you don't want to keep, check anything
             else you'd like, then proceed - that's what actually charges your card or schedules a removal.

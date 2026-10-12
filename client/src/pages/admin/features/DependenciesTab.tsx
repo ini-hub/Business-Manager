@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { FeatureDetailData } from "./detailTypes";
 
+import { SectionLoader } from "@/components/ui/loader";
 interface Needed { dependencyId: string; id: string; key: string; name: string; fromRegistry?: boolean }
 
 export function DependenciesTab({ data, canEdit }: { data: FeatureDetailData; canEdit: boolean }) {
@@ -38,7 +39,7 @@ export function DependenciesTab({ data, canEdit }: { data: FeatureDetailData; ca
     onError: (err) => toast({ title: "Couldn't remove the dependency", description: errorMessage(err), variant: "destructive" }),
   });
 
-  if (deps.isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (deps.isLoading) return <SectionLoader label="Loading…" size={32} />;
   if (deps.error || !deps.data) return <p className="text-sm text-rose-700 dark:text-rose-300" role="alert">Couldn't load the dependencies.</p>;
   const { needs, neededBy } = deps.data;
   const taken = new Set([feature.id, ...needs.map((n) => n.id)]);
@@ -51,7 +52,7 @@ export function DependenciesTab({ data, canEdit }: { data: FeatureDetailData; ca
       </p>
 
       <section className="space-y-2" aria-labelledby="needs-h">
-        <h3 id="needs-h" className="text-sm font-bold text-foreground">Needs these first</h3>
+        <h3 id="needs-h" className="text-foreground">Needs these first</h3>
         {needs.length === 0 ? <p className="text-sm text-muted-foreground">Nothing.</p> : (
           <ul className="rounded-2xl border border-border/80 bg-card/40 divide-y divide-border">
             {needs.map((n) => (
@@ -85,7 +86,7 @@ export function DependenciesTab({ data, canEdit }: { data: FeatureDetailData; ca
       </section>
 
       <section className="space-y-2" aria-labelledby="by-h">
-        <h3 id="by-h" className="text-sm font-bold text-foreground">Needed by</h3>
+        <h3 id="by-h" className="text-foreground">Needed by</h3>
         {neededBy.length === 0 ? <p className="text-sm text-muted-foreground">No other feature needs this one.</p> : (
           <ul className="rounded-2xl border border-border/80 bg-card/40 divide-y divide-border">
             {neededBy.map((n) => (

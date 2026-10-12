@@ -508,7 +508,7 @@ export default function StaffFormPage() {
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
         <div className="flex-1 min-w-0">
-          <h1 className="font-bold text-sm truncate">{staffId ? "Edit Staff Member" : "New Staff Member"}</h1>
+          <h1 className="truncate">{staffId ? "Edit Staff Member" : "New Staff Member"}</h1>
           <p className="text-xs text-muted-foreground">{currentStore.name}</p>
         </div>
         <Button size="sm" onClick={form.handleSubmit(onSubmit)} disabled={mutation.isPending || isPreparingContract} className="shrink-0">

@@ -91,7 +91,7 @@ export default function OnboardingWizard() {
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-background flex items-center justify-center p-4">
       <div className="w-full max-w-2xl space-y-6">
         <div className="text-center space-y-2">
-          <h1 className="text-[26px] font-bold tracking-tight">Welcome to Kowope</h1>
+          <h1>Welcome to Kowope</h1>
           <p className="text-muted-foreground text-sm">One quick step - name your first store (about 30 seconds). You'll add products and staff from your dashboard.</p>
         </div>
 

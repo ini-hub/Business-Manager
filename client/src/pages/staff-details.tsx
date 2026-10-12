@@ -384,7 +384,7 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <h1 className="text-lg font-bold tracking-tight truncate">{fullName}</h1>
+            <h1 className="truncate">{fullName}</h1>
             <p className="text-xs text-muted-foreground truncate">
               {staff.staffNumber} · <span className="capitalize">{staff.role || "Staff"}</span> · Joined{" "}
               {new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric" }).format(new Date(staff.createdAt))}
@@ -466,7 +466,7 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
       {isLogs && (
       <Card className="glassmorphism border border-border/80">
         <CardHeader className="pb-3 border-b">
-          <CardTitle className="text-base font-semibold flex items-center gap-2 text-foreground">
+          <CardTitle className="flex items-center gap-2 text-foreground">
             <Users className="h-4 w-4 text-primary" />
             Staff Logs & Activities
           </CardTitle>
@@ -555,7 +555,7 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
 
             <TabsContent value="payroll" className="space-y-6">
               <div className="space-y-2">
-                <h3 className="text-sm font-semibold">Pay periods</h3>
+                <h3>Pay periods</h3>
                 {periodsLoading ? <RowsSkeleton /> : periods.length === 0 ? (
                   <EmptyRows icon={<Wallet className="h-6 w-6" />} message="No payroll periods yet." />
                 ) : (
@@ -574,7 +574,7 @@ export default function StaffDetails({ view = "overview" }: { view?: "overview" 
                 )}
               </div>
               <div className="space-y-2">
-                <h3 className="text-sm font-semibold">Salary advances</h3>
+                <h3>Salary advances</h3>
                 {advancesLoading ? <RowsSkeleton /> : advances.length === 0 ? (
                   <EmptyRows icon={<Coins className="h-6 w-6" />} message="No salary advances for this staff member." />
                 ) : (

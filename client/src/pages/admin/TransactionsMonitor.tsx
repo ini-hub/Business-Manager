@@ -67,7 +67,7 @@ export default function TransactionsMonitor() {
   return (
     <div className="space-y-6 font-sans">
       <div>
-        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Transactions Ledger</h1>
+        <h1 className="text-foreground">Transactions Ledger</h1>
         <p className="text-muted-foreground text-sm mt-1">Audit platform-wide transaction ledger streams and intercept flagged anomaly metrics.</p>
       </div>
 
@@ -143,7 +143,7 @@ export default function TransactionsMonitor() {
           ) : filteredLedger.length === 0 ? (
             <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
               <Receipt className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-              <h3 className="font-bold text-foreground text-base">No Transaction Ledger Records</h3>
+              <h3 className="text-foreground">No Transaction Ledger Records</h3>
               <p className="text-xs text-muted-foreground mt-1">Adjust search parameters or check administrative sync intervals.</p>
             </div>
           ) : (
@@ -215,7 +215,7 @@ export default function TransactionsMonitor() {
           ) : !flaggedData?.flagged || flaggedData.flagged.length === 0 ? (
             <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
               <ShieldCheck className="h-10 w-10 text-primary mx-auto mb-3" />
-              <h3 className="font-bold text-foreground text-base">Ledger Shield Active</h3>
+              <h3 className="text-foreground">Ledger Shield Active</h3>
               <p className="text-xs text-muted-foreground mt-1">Outstanding! All checkout parameters conform cleanly to platform standards.</p>
             </div>
           ) : (
@@ -241,7 +241,7 @@ export default function TransactionsMonitor() {
                     <CardHeader className="bg-background/20 p-4 border-b border-border/40 flex flex-row items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <Icon className="h-4 w-4 shrink-0" />
-                        <CardTitle className="text-sm font-bold text-foreground truncate font-mono">{f.reference}</CardTitle>
+                        <CardTitle className="text-foreground truncate font-mono">{f.reference}</CardTitle>
                       </div>
                       <Badge variant="outline" className="bg-rose-100 dark:bg-rose-950/40 text-rose-800 dark:text-rose-400 border-none text-[11px] font-bold uppercase shrink-0">
                         {f.flag}

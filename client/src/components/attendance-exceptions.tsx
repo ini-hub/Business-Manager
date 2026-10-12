@@ -166,7 +166,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-3">
           <div>
-            <CardTitle className="flex items-center gap-2 text-base">
+            <CardTitle className="flex items-center gap-2">
               <UserCheck className="h-4 w-4" /> Attendance requests
             </CardTitle>
             <CardDescription>{pending.length} waiting for a decision</CardDescription>
@@ -209,7 +209,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base"><Clock className="h-4 w-4" /> Clock-in log</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Clock className="h-4 w-4" /> Clock-in log</CardTitle>
           <CardDescription>Last 14 days</CardDescription>
         </CardHeader>
         <CardContent>
@@ -261,7 +261,7 @@ export function AttendanceExceptions({ storeId, staff }: { storeId: string; staf
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base"><Smartphone className="h-4 w-4" /> Devices</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Smartphone className="h-4 w-4" /> Devices</CardTitle>
           <CardDescription>Phones staff have clocked in from.</CardDescription>
         </CardHeader>
         <CardContent>

@@ -171,7 +171,7 @@ export default function PartnerTransferDetailsPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Items</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle>Items</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {t.items.map((i) => (
             <div key={i.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 text-sm">
@@ -198,7 +198,7 @@ export default function PartnerTransferDetailsPage() {
 
       {canManage && (
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">What is owed</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle>What is owed</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p>{SETTLEMENT_HELP[t.settlementType ?? "none"]}</p>
 
@@ -258,7 +258,7 @@ export default function PartnerTransferDetailsPage() {
       )}
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">History</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle>History</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {t.events.map((e) => (
             <div key={e.id} className="flex items-center justify-between gap-2 text-sm">

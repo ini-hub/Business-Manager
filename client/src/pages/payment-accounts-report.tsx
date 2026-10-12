@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 
+import { SectionLoader } from "@/components/ui/loader";
 type AccountRow = { paymentAccountId: string | null; label: string; detail: string | null; expected: number; confirmed: number; pending: number; legCount: number };
 type PendingLeg = { id: string; receiptNumber: string; checkoutId: string | null; method: string; amount: number; accountLabel: string | null; reference: string | null; senderName: string | null; createdAt: string };
 type Report = { accounts: AccountRow[]; pendingLegs: PendingLeg[] };
@@ -72,7 +73,7 @@ export default function PaymentAccountsReportPage() {
           </div>
 
           {isError && <p className="text-sm text-destructive">Couldn't load the report. Try again.</p>}
-          {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {isLoading && <SectionLoader label="Loading…" size={32} />}
 
           {data && data.accounts.length === 0 && (
             <p className="text-sm text-muted-foreground">No transfers in this period.</p>
@@ -82,7 +83,7 @@ export default function PaymentAccountsReportPage() {
             {data?.accounts.map((a) => (
               <Card key={a.paymentAccountId ?? a.label} data-testid={`card-account-${a.paymentAccountId ?? "unassigned"}`}>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2"><Landmark className="h-4 w-4" aria-hidden="true" />{a.label}</CardTitle>
+                  <CardTitle className="flex items-center gap-2"><Landmark className="h-4 w-4" aria-hidden="true" />{a.label}</CardTitle>
                   {a.detail && <p className="text-xs text-muted-foreground">{a.detail}</p>}
                 </CardHeader>
                 <CardContent className="space-y-1 text-sm">
@@ -97,7 +98,7 @@ export default function PaymentAccountsReportPage() {
           {pending.length > 0 && (
             <Card>
               <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-                <CardTitle className="text-sm">Waiting to be confirmed ({pending.length})</CardTitle>
+                <CardTitle>Waiting to be confirmed ({pending.length})</CardTitle>
                 <Button size="sm" disabled={selected.size === 0 || confirm.isPending} onClick={() => confirm.mutate(Array.from(selected))} data-testid="button-confirm-selected">
                   Confirm {selected.size > 0 ? selected.size : ""} selected
                 </Button>
@@ -123,7 +124,7 @@ export default function PaymentAccountsReportPage() {
           {unmatched.length > 0 && (
             <Card>
               <CardHeader className="space-y-1">
-                <CardTitle className="text-sm">Bank credits with no matching sale ({unmatched.length})</CardTitle>
+                <CardTitle>Bank credits with no matching sale ({unmatched.length})</CardTitle>
                 <p className="text-xs text-muted-foreground">Money that reached a linked account but wasn't tied to a transfer. Match it to a waiting payment above, or check it isn't an unrecorded sale.</p>
               </CardHeader>
               <CardContent className="divide-y">

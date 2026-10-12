@@ -125,12 +125,12 @@ export default function BundleEditor() {
         <Link href="/super-admin/bundles" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Bundles
         </Link>
-        <h1 className="text-2xl font-semibold">{isNew ? "New bundle" : `Edit ${existing?.name}`}</h1>
+        <h1>{isNew ? "New bundle" : `Edit ${existing?.name}`}</h1>
         <p className="text-sm text-muted-foreground">Pick what is in it. The price is the members' catalog prices, less the discount, while a business holds all of them.</p>
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Details</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Details</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
@@ -164,7 +164,7 @@ export default function BundleEditor() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Features in this bundle ({form.featureKeys.length})</CardTitle>
+          <CardTitle>Features in this bundle ({form.featureKeys.length})</CardTitle>
           <CardDescription>Ticking a feature also adds anything it needs.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

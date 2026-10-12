@@ -333,7 +333,7 @@ export default function PurchaseOrderFormPage() {
           <ArrowLeft className="h-4 w-4" />
         </IconButton>
         <div className="flex-1 min-w-0">
-          <h1 className="font-bold text-sm truncate">{isEdit ? `Edit ${editPO?.poNumber ?? "order"}` : "New purchase order"}</h1>
+          <h1 className="truncate">{isEdit ? `Edit ${editPO?.poNumber ?? "order"}` : "New purchase order"}</h1>
           <p className="text-xs text-muted-foreground truncate">{storeLabel}</p>
         </div>
         <button

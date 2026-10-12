@@ -118,7 +118,7 @@ export default function PublishReview() {
     <div className="space-y-5 font-sans max-w-3xl">
       <div>
         {back}
-        <h1 className="text-[26px] font-bold text-foreground tracking-tight">Review new features</h1>
+        <h1 className="text-foreground">Review new features</h1>
         <p className="text-muted-foreground text-sm mt-1">Added by a release and hidden until published. Price each one, check the impact, then publish together.</p>
       </div>
 
@@ -134,7 +134,7 @@ export default function PublishReview() {
         </div>
       ) : pending.length === 0 ? (
         <div className="text-center py-16 bg-card/20 border border-border/80 rounded-2xl">
-          <h3 className="text-sm font-bold text-foreground">Nothing to review</h3>
+          <h3 className="text-foreground">Nothing to review</h3>
           <p className="text-xs text-muted-foreground mt-1">New features from a release appear here until you publish them.</p>
           <Button variant="outline" className="mt-4 rounded-xl" onClick={() => navigate("/super-admin/features")}>Back to features</Button>
         </div>

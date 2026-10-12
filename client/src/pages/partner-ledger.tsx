@@ -32,14 +32,14 @@ export default function PartnerLedgerPage() {
       <PageHeader compact title="Partner ledger" description="What your partner businesses owe you, and what you owe them." />
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Card><CardHeader className="pb-1"><CardTitle className="text-sm font-medium text-muted-foreground">Owed to you</CardTitle></CardHeader>
+        <Card><CardHeader className="pb-1"><CardTitle className="font-medium text-muted-foreground">Owed to you</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold" data-testid="text-owed-to-me">{money(data?.totals.owedToMe ?? 0)}</div></CardContent></Card>
-        <Card><CardHeader className="pb-1"><CardTitle className="text-sm font-medium text-muted-foreground">You owe</CardTitle></CardHeader>
+        <Card><CardHeader className="pb-1"><CardTitle className="font-medium text-muted-foreground">You owe</CardTitle></CardHeader>
           <CardContent><div className="text-2xl font-bold" data-testid="text-i-owe">{money(data?.totals.iOwe ?? 0)}</div></CardContent></Card>
       </div>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">By partner</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle>By partner</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {(data?.partners.length ?? 0) === 0 && <p className="py-4 text-center text-sm text-muted-foreground">Nothing owed either way.</p>}
           {data?.partners.map((p) => (
@@ -54,7 +54,7 @@ export default function PartnerLedgerPage() {
       </Card>
 
       <Card>
-        <CardHeader className="pb-3"><CardTitle className="text-base">Open balances</CardTitle></CardHeader>
+        <CardHeader className="pb-3"><CardTitle>Open balances</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {open.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No open balances.</p>}
           {open.map((o) => (
