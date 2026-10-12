@@ -91,16 +91,24 @@ export async function assertCatalogSeeded(): Promise<void> {
  * Fire-and-forget from getOrgEntitlements: the read below already treats an
  * expired pending_removal row as inactive, so this write never blocks it.
  */
+// The sweep is housekeeping: readers already treat a pending_removal row past its deadline as gone, so it
+// only needs to land eventually. Once per org per window, not one UPDATE on every entitlements read.
+const sweepCache = createTtlCache<string, true>(2 * 60_000);
+
 function sweepExpiredEntitlements(organisationId: string): void {
-  db.update(orgFeatureEntitlements)
-    .set({ status: "removed", updatedAt: new Date() })
-    .where(
-      and(
-        eq(orgFeatureEntitlements.organisationId, organisationId),
-        eq(orgFeatureEntitlements.status, "pending_removal"),
-        lte(orgFeatureEntitlements.removalEffectiveAt, new Date())
-      )
-    )
+  sweepCache
+    .get(organisationId, async () => {
+      await db.update(orgFeatureEntitlements)
+        .set({ status: "removed", updatedAt: new Date() })
+        .where(
+          and(
+            eq(orgFeatureEntitlements.organisationId, organisationId),
+            eq(orgFeatureEntitlements.status, "pending_removal"),
+            lte(orgFeatureEntitlements.removalEffectiveAt, new Date())
+          )
+        );
+      return true as const;
+    })
     .catch((error) => console.error(`sweepExpiredEntitlements failed for org ${organisationId}:`, error));
 }
 
@@ -526,19 +534,34 @@ async function countUsed(conn: CountConn, organisationId: string, limitType: Cou
   return row?.c ?? 0;
 }
 
+/** The three org-wide counts countUsed runs one by one, as one statement. Keep the filters in step with countUsed. */
+async function orgWideCounts(organisationId: string): Promise<{ customers: number; items: number; stores: number }> {
+  const result = await db.execute(sql`
+    select
+      (select count(distinct coalesce(${customers.globalCustomerId}, nullif(${customers.mobileNumber}, ''), ${customers.id}))::int
+         from ${customers} inner join ${stores} on ${customers.storeId} = ${stores.id}
+         where ${customers.isArchived} = false and ${stores.businessId} = ${organisationId}) as customers,
+      (select count(*)::int
+         from ${inventory} inner join ${stores} on ${inventory.storeId} = ${stores.id}
+         where ${stores.businessId} = ${organisationId} and ${inventory.isDeleted} = false and ${inventory.type} in ('product','service')) as items,
+      (select count(*)::int from ${stores} where ${stores.businessId} = ${organisationId} and ${stores.isActive} = true) as stores
+  `);
+  const row = (result.rows[0] ?? {}) as Record<string, unknown>;
+  return { customers: Number(row.customers ?? 0), items: Number(row.items ?? 0), stores: Number(row.stores ?? 0) };
+}
+
+
 /** Active non-owner staff per store for one business: the seats each store is using. */
 export async function staffUsedByStore(conn: CountConn, organisationId: string): Promise<Map<string, number>> {
+  // Stores left-joined to their counted staff: a store with none still gets a (zero) entry, so "no store given"
+  // is the max over real stores. One statement; the filters live in the join so empty stores survive.
   const rows = await conn
-    .select({ storeId: staff.storeId, c: sql<number>`count(*)::int` })
-    .from(staff)
-    .innerJoin(stores, eq(staff.storeId, stores.id))
-    .where(and(eq(stores.businessId, organisationId), eq(staff.isArchived, false), sql`${staff.role} <> 'owner'`))
-    .groupBy(staff.storeId);
-  const out = new Map<string, number>(rows.map((r) => [r.storeId, r.c]));
-  // A store with no counted staff still has a (zero) entry, so "no store given" is the max over real stores.
-  const all = await conn.select({ id: stores.id }).from(stores).where(eq(stores.businessId, organisationId));
-  for (const st of all) if (!out.has(st.id)) out.set(st.id, 0);
-  return out;
+    .select({ storeId: stores.id, c: sql<number>`count(${staff.id})::int` })
+    .from(stores)
+    .leftJoin(staff, and(eq(staff.storeId, stores.id), eq(staff.isArchived, false), sql`${staff.role} <> 'owner'`))
+    .where(eq(stores.businessId, organisationId))
+    .groupBy(stores.id);
+  return new Map(rows.map((r) => [r.storeId, r.c]));
 }
 
 
@@ -783,6 +806,32 @@ export async function getActiveFeaturePricing(
     }));
 }
 
+type CountLimitStatus = { limit: number; used: number; unlimited: boolean; tiered: boolean; trial: boolean; usedByStore?: Record<string, number> };
+
+/** The status shape both read paths return, from numbers they have already loaded. */
+function buildCountLimitStatus(
+  limitType: CountLimitType,
+  p: { freeLimit: number; trialing: boolean; owned: string[]; tiers: LimitTier[]; used: number; perStore?: Map<string, number> },
+): CountLimitStatus {
+  const resolved = resolveCountLimit(limitType, p.freeLimit, p.owned, p.tiers);
+  const { freeLimit, trialing, used } = p;
+  // A trial may open extra stores (see evaluateCountLimit); the cap applies once it ends.
+  if (trialing && limitType === "store_count") return { limit: freeLimit, used, unlimited: true, tiered: false, trial: false };
+  // Staff seats are per store, so the client also gets every store's count to pick the one in view.
+  const usedByStore = limitType === "staff_seats" && p.perStore ? Object.fromEntries(p.perStore) : undefined;
+  if (resolved.unlimited) return { limit: freeLimit, used, unlimited: true, tiered: false, trial: false, usedByStore };
+  return { limit: resolved.limit, used, unlimited: false, tiered: resolved.limit > freeLimit, trial: trialing && resolved.limit === freeLimit, usedByStore };
+}
+
+function freeLimitFor(limitType: CountLimitType, catalog: FeatureCatalog[]): number {
+  return catalog.find((f) => f.key === LIMIT_FEATURE_KEY[limitType])?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
+}
+
+function staffSeatsUsed(perStore: Map<string, number>, storeId?: string): number {
+  if (storeId) return perStore.get(storeId) ?? 0;
+  return Math.max(0, ...Array.from(perStore.values()));
+}
+
 /** Read-only limit status for GET /api/entitlements - no advisory lock needed, this never gates a write. */
 export async function getCountLimitStatus(
   organisationId: string,
@@ -790,22 +839,58 @@ export async function getCountLimitStatus(
   storeId?: string,
   /** Lifecycle the caller already loaded (see loadOrgEntitlementInputs); saves two reads per limit. */
   life?: Lifecycle,
-): Promise<{ limit: number; used: number; unlimited: boolean; tiered: boolean; trial: boolean; usedByStore?: Record<string, number> }> {
+): Promise<CountLimitStatus> {
   const feature = await getFeatureByKey(LIMIT_FEATURE_KEY[limitType]);
   const freeLimit = feature?.freeLimit ?? DEFAULT_FREE_LIMIT[limitType];
   // Same rule as evaluateCountLimit: a trial gets the free amount; otherwise the cap is the biggest tier owned.
   const knownLife = life === undefined ? await loadLifecycle(db, organisationId) : life;
   const trialing = trialingFrom(knownLife);
   const owned = softLockedFrom(knownLife) ? [] : await loadOwnedTierKeys(db, organisationId, limitType);
-  const resolved = resolveCountLimit(limitType, freeLimit, owned, await loadLimitTiers());
+  const tiers = await loadLimitTiers();
 
+  if (limitType === "staff_seats") {
+    const perStore = await staffUsedByStore(db, organisationId);
+    return buildCountLimitStatus(limitType, { freeLimit, trialing, owned, tiers, used: staffSeatsUsed(perStore, storeId), perStore });
+  }
   const used = await countUsed(db, organisationId, limitType, storeId);
-  // A trial may open extra stores (see evaluateCountLimit); the cap applies once it ends.
-  if (trialing && limitType === "store_count") return { limit: freeLimit, used, unlimited: true, tiered: false, trial: false };
-  // Staff seats are per store, so the client also gets every store's count to pick the one in view.
-  const usedByStore = limitType === "staff_seats" ? Object.fromEntries(await staffUsedByStore(db, organisationId)) : undefined;
-  if (resolved.unlimited) return { limit: freeLimit, used, unlimited: true, tiered: false, trial: false, usedByStore };
-  return { limit: resolved.limit, used, unlimited: false, tiered: resolved.limit > freeLimit, trial: trialing && resolved.limit === freeLimit, usedByStore };
+  return buildCountLimitStatus(limitType, { freeLimit, trialing, owned, tiers, used });
+}
+
+/**
+ * All four limits for GET /api/entitlements in three statements (owned tiers, per-store staff, the three
+ * org-wide counts) instead of four of each. Same answers as four getCountLimitStatus calls.
+ */
+export async function getCountLimitStatuses(
+  organisationId: string,
+  opts: { staffStoreId?: string; life?: Lifecycle } = {},
+): Promise<Record<CountLimitType, CountLimitStatus>> {
+  const knownLife = opts.life === undefined ? await loadLifecycle(db, organisationId) : opts.life;
+  const trialing = trialingFrom(knownLife);
+  const [ownedRows, tiers, perStore, totals, catalog] = await Promise.all([
+    softLockedFrom(knownLife)
+      ? Promise.resolve([] as { key: string; limitType: string | null }[])
+      : db
+          .select({ key: featureCatalog.key, limitType: featureCatalog.limitType })
+          .from(orgFeatureEntitlements)
+          .innerJoin(featureCatalog, eq(orgFeatureEntitlements.featureId, featureCatalog.id))
+          .where(and(eq(orgFeatureEntitlements.organisationId, organisationId), eq(orgFeatureEntitlements.status, "active"))),
+    loadLimitTiers(),
+    staffUsedByStore(db, organisationId),
+    orgWideCounts(organisationId),
+    loadAllCatalog(),
+  ]);
+  const ownedFor = (limitType: CountLimitType) => ownedRows.filter((r) => r.limitType === limitType).map((r) => r.key);
+  const build = (limitType: CountLimitType, used: number) =>
+    buildCountLimitStatus(limitType, {
+      freeLimit: freeLimitFor(limitType, catalog), trialing, owned: ownedFor(limitType), tiers, used,
+      perStore: limitType === "staff_seats" ? perStore : undefined,
+    });
+  return {
+    staff_seats: build("staff_seats", staffSeatsUsed(perStore, opts.staffStoreId)),
+    customer_count: build("customer_count", totals.customers),
+    store_count: build("store_count", totals.stores),
+    item_count: build("item_count", totals.items),
+  };
 }
 
 /** Express middleware wrapping checkCountLimit with the standard 402 response shape. */

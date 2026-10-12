@@ -12,7 +12,7 @@ import { getUserPermissions } from "./roles";
 import {
   getOrgEntitlements,
   getOrgPurchasedFeatures,
-  getCountLimitStatus,
+  getCountLimitStatuses,
   getOrgFeatureView,
   getOrgLifecycleView,
   loadOrgEntitlementInputs,
@@ -135,14 +135,11 @@ export async function loadEntitlementsPayload(user: any, storeId?: string) {
   // The org's lifecycle row and entitlement rows are read once and shared by every view below.
   const inputs = await loadOrgEntitlementInputs(user.businessId);
   const { life } = inputs;
-  const [granted, purchased, staffSeats, customerCount, storeCount, itemCount, rawScreenGates, sidebarLayout, permissions, lifecycle] =
+  const [granted, purchased, limits, rawScreenGates, sidebarLayout, permissions, lifecycle] =
     await Promise.all([
       getOrgEntitlements(user.businessId, inputs),
       getOrgPurchasedFeatures(user.businessId, inputs),
-      getCountLimitStatus(user.businessId, "staff_seats", storeId, life),
-      getCountLimitStatus(user.businessId, "customer_count", undefined, life),
-      getCountLimitStatus(user.businessId, "store_count", undefined, life),
-      getCountLimitStatus(user.businessId, "item_count", undefined, life),
+      getCountLimitStatuses(user.businessId, { staffStoreId: storeId, life }),
       listScreenGates(),
       getSidebarLayout(),
       getUserPermissions(user),
@@ -167,6 +164,6 @@ export async function loadEntitlementsPayload(user: any, storeId?: string) {
     lifecycle,
     disabledFeatures: featureView.disabled,
     featurePrices: featureView.prices,
-    limits: { staff_seats: staffSeats, customer_count: customerCount, store_count: storeCount, item_count: itemCount },
+    limits: { staff_seats: limits.staff_seats, customer_count: limits.customer_count, store_count: limits.store_count, item_count: limits.item_count },
   };
 }
