@@ -10,6 +10,7 @@ import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { staffInviteService, type InviteOutcome, type ExistingLink } from "../services/StaffInviteService";
 import { syncStaffNameToLinkedUser, syncStaffToHrPersonalFields } from "../services/IdentitySync";
 import { staffContractService, contractStagingPrefix } from "../services/StaffContractService";
+import { staffMergeService } from "../services/StaffMergeService";
 import { objectStorage } from "../lib/objectStorage";
 import {
   insertStaffSchema, attachContractSchema,
@@ -91,6 +92,55 @@ export function registerStaffRoutes(app: Express, { isAuthenticated, requireRole
       return userId != null ? String(userId) : ipKeyGenerator(req.ip ?? "");
     },
     message: { error: "Too many invitation resends. Please wait a moment." },
+  });
+
+  // ========== STAFF MERGE (owner only) ==========
+  // Registered ahead of the "/api/staff/:id" routes so "merge-candidates" is never read as an id.
+  // People who were created once per store (same login, several staff rows) and can be folded into one record.
+  app.get("/api/staff/merge-candidates", requireRole("owner"), async (req: any, res) => {
+    try {
+      const businessId = req.user?.businessId;
+      if (!businessId) return res.status(400).json({ error: "Please select a business first." });
+      res.json({ groups: await staffMergeService.findCandidates(businessId) });
+    } catch (error) {
+      console.error("Staff merge candidates error:", error);
+      res.status(500).json({ error: "We couldn't load duplicate staff records. Please try again." });
+    }
+  });
+
+  // dryRun: true reports exactly what would move or conflict and changes nothing.
+  app.post("/api/staff/merge", requireRole("owner"), async (req: any, res) => {
+    try {
+      const businessId = req.user?.businessId;
+      if (!businessId) return res.status(400).json({ error: "Please select a business first." });
+      const body = z.object({
+        survivorId: z.string().min(1),
+        loserId: z.string().min(1),
+        payFrom: z.enum(["survivor", "loser"]).optional(),
+        dryRun: z.boolean().optional(),
+      }).safeParse(req.body);
+      if (!body.success) return res.status(400).json({ error: "Choose the record to keep and the record to merge into it." });
+
+      const survivor = await storage.getStaff(body.data.survivorId);
+      if (!survivor) return res.status(404).json({ error: "Staff member not found." });
+
+      const report = await staffMergeService.merge({ ...body.data, businessId });
+      if (!report.ok) return res.status(409).json(report);
+
+      if (!report.dryRun) {
+        const ctx = await getAuditContext(req, { storeId: survivor.storeId });
+        auditLogger.logEvent(ctx, "STAFF_MERGE", "staff", body.data.survivorId, "success", {
+          previousValues: { mergedStaff: report.loser },
+          newValues: { survivorId: body.data.survivorId, moved: report.moved, discarded: report.discarded },
+          changedFields: ["staff"],
+        });
+        broadcastChange(req, "staff", survivor.storeId, "updated");
+      }
+      res.json(report);
+    } catch (error) {
+      console.error("Staff merge error:", error);
+      res.status(500).json({ error: "We couldn't merge these staff records. Nothing was changed." });
+    }
   });
 
   // ========== STAFF ==========
