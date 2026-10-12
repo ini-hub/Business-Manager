@@ -374,7 +374,7 @@ export async function sendOtpEmail(
 
   const html = renderEmail({
     heading: "Reset your password",
-    preheader: `Your password reset code is ${code}`,
+    compact: true,
     body:
       para(`Hi <strong>${safeName}</strong>,`) +
       para("Your one-time password reset code is:") +
@@ -386,7 +386,7 @@ export async function sendOtpEmail(
 
   sendEmail({
     to,
-    subject: `Your password reset code — ${sanitizeHeaderValue(businessName)}`,
+    subject: `${sanitizeHeaderValue(code)} is your Kowope password reset code`,
     html,
   });
 }
@@ -614,7 +614,7 @@ export async function sendPhoneChangeOtpEmail(
 ): Promise<void> {
   const html = renderEmail({
     heading: "Confirm your new phone number",
-    preheader: `Your phone verification code is ${code}`,
+    compact: true,
     body:
       para(`Hi <strong>${escapeHtml(name)}</strong>,`) +
       para(`Use this code to confirm changing your phone number to <strong>${escapeHtml(newPhone)}</strong>:`) +
@@ -626,7 +626,7 @@ export async function sendPhoneChangeOtpEmail(
 
   sendEmail({
     to,
-    subject: `Your phone number verification code — ${sanitizeHeaderValue(businessName)}`,
+    subject: `${sanitizeHeaderValue(code)} is your Kowope phone verification code`,
     html,
   });
 }
@@ -643,7 +643,7 @@ export async function sendEmailVerificationOtpEmail(
 
   const html = renderEmail({
     heading: "Verify your email address",
-    preheader: `Your verification code is ${code}`,
+    compact: true,
     body:
       para(`Hi <strong>${safeName}</strong>,`) +
       para("Your one-time email verification code is:") +
@@ -655,7 +655,7 @@ export async function sendEmailVerificationOtpEmail(
 
   sendEmail({
     to,
-    subject: `Your email verification code — ${sanitizeHeaderValue(businessName)}`,
+    subject: `${sanitizeHeaderValue(code)} is your Kowope verification code`,
     html,
   });
 }

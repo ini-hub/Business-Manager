@@ -37,6 +37,12 @@ export interface EmailLayoutInput {
   showLinkFallback?: boolean;
   /** Content width in px. Wider for emails that carry a table. */
   width?: number;
+  /**
+   * Text-only header: no remote logo image and no hidden preheader. Used for one-time-code emails,
+   * where a short, image-free, hidden-text-free message is least likely to be junk-foldered by
+   * Outlook/Yahoo-style filters on a young sending domain.
+   */
+  compact?: boolean;
 }
 
 export const para = (html: string) =>
@@ -84,7 +90,7 @@ export function renderEmail(input: EmailLayoutInput): string {
 <title>${escapeHtml(input.heading)}</title>
 </head>
 <body style="margin:0;padding:0;background:${PAGE};">
-${input.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(input.preheader)}</div>` : ""}
+${input.preheader && !input.compact ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">${escapeHtml(input.preheader)}</div>` : ""}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${PAGE}" style="background:${PAGE};">
   <tr>
     <td align="center" style="padding:24px 12px;">
@@ -93,9 +99,9 @@ ${input.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opaci
           <td bgcolor="${BLUE}" style="background:${BLUE};border-radius:14px 14px 0 0;padding:22px 28px;">
             <table role="presentation" cellpadding="0" cellspacing="0" border="0">
               <tr>
-                <td style="vertical-align:middle;padding-right:12px;">
+                ${input.compact ? "" : `<td style="vertical-align:middle;padding-right:12px;">
                   <img src="${logo}" width="40" height="40" alt="" style="display:block;border:0;border-radius:10px;" />
-                </td>
+                </td>`}
                 <td style="vertical-align:middle;font-family:${FONT};font-size:26px;font-weight:700;letter-spacing:-0.03em;color:#FFFFFF;line-height:1;">kowope</td>
               </tr>
             </table>

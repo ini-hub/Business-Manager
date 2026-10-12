@@ -6,7 +6,10 @@ import { withAdvisoryLock } from "../lib/advisoryLock";
 
 const RESEND_API_KEY = (process.env.RESEND_API_KEY || "").trim();
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "noreply@kowope.bolujo.com";
-const BUSINESS_NAME = process.env.BUSINESS_NAME || "Business Manager";
+// The display name receivers see. Kept as the product brand (matches the logo, footer and body of
+// every message) rather than BUSINESS_NAME - a sender name that disagrees with the content is a
+// spam-filter signal on a young domain.
+const EMAIL_FROM_NAME = (process.env.EMAIL_FROM_NAME || "Kowope").replace(/[\r\n"<>]/g, "").trim() || "Kowope";
 
 if (!RESEND_API_KEY) {
   console.warn("[EmailQueue] WARNING: RESEND_API_KEY is not set. Emails will not be sent.");
@@ -62,7 +65,7 @@ async function flush(): Promise<void> {
     for (const item of due) {
       try {
         const { data, error } = await resend.emails.send({
-          from: `${BUSINESS_NAME} <${RESEND_FROM_EMAIL}>`,
+          from: `${EMAIL_FROM_NAME} <${RESEND_FROM_EMAIL}>`,
           to: item.to,
           subject: item.subject,
           html: item.html,
