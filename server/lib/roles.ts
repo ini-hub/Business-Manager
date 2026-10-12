@@ -52,6 +52,7 @@ export async function renameRoleHolders(businessId: string, oldName: string, new
   if (from === to) return;
   await db.transaction(async (tx) => {
     await tx.execute(sql`UPDATE staff SET role = ${to} WHERE role = ${from} AND store_id IN (SELECT id FROM stores WHERE business_id = ${businessId})`);
+    await tx.execute(sql`UPDATE staff_store_assignments SET role = ${to} WHERE role = ${from} AND store_id IN (SELECT id FROM stores WHERE business_id = ${businessId})`);
     await tx.execute(sql`UPDATE users SET role = ${to} WHERE role = ${from} AND business_id = ${businessId}`);
     await tx.execute(sql`UPDATE organisation_members SET role = ${to} WHERE role = ${from} AND organisation_id = ${businessId}`);
   });

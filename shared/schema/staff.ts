@@ -87,6 +87,25 @@ export const staff = pgTable("staff", {
   index("idx_staff_store").on(table.storeId),
 ]);
 
+// One row per (person, store they may work in). staff.storeId remains the home
+// store; the home store always has an assignment (migrations/0129). Number,
+// title and punch PIN are per store; pay stays on staff (one salary per person).
+export const staffStoreAssignments = pgTable("staff_store_assignments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  staffId: varchar("staff_id").notNull().references(() => staff.id, { onDelete: "cascade" }),
+  storeId: varchar("store_id").notNull().references(() => stores.id),
+  staffNumber: text("staff_number").notNull(),
+  role: text("role").notNull().default("staff"),
+  punchPinHash: text("punch_pin_hash"),
+  isArchived: boolean("is_archived").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  unique("staff_assignment_person_store_unique").on(table.staffId, table.storeId),
+  unique("staff_assignment_store_number_unique").on(table.storeId, table.staffNumber),
+  index("idx_staff_assignments_store").on(table.storeId),
+]);
+export type StaffStoreAssignment = typeof staffStoreAssignments.$inferSelect;
+
 export const staffRelations = relations(staff, ({ one, many }) => ({
   store: one(stores, {
     fields: [staff.storeId],

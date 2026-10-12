@@ -4,6 +4,7 @@ import {
   organisations,
   stores,
   staff,
+  staffStoreAssignments,
   customers,
   creditEntries,
   payrollPeriods,
@@ -121,6 +122,13 @@ export async function createFixture(opts?: { payPerMonth?: number }): Promise<Fi
     // netPay a store default rather than the figure these tests set.
     overridePaymentMethod: true,
   }).returning();
+  // Home assignment, as createStaff writes it (migration 0129).
+  await db.insert(staffStoreAssignments).values({
+    staffId: staffMember.id,
+    storeId: store.id,
+    staffNumber: staffMember.staffNumber,
+    role: staffMember.role,
+  });
 
   const [customer] = await db.insert(customers).values({
     storeId: store.id,
@@ -242,6 +250,9 @@ async function destroyStore(storeId: string, businessId: string): Promise<void> 
     DELETE FROM hr_guarantor_form_versions
       WHERE guarantor_form_id IN (SELECT id FROM hr_guarantor_forms WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId}))`);
   await db.execute(sql`DELETE FROM hr_guarantor_forms WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  // Assignments of people homed elsewhere also reference this store (no cascade
+  // on store_id); rows for this store's own staff cascade with the DELETE below.
+  await db.execute(sql`DELETE FROM staff_store_assignments WHERE store_id = ${storeId}`);
   await db.execute(sql`DELETE FROM staff WHERE store_id = ${storeId}`);
   // shared/schema/accounting.ts tables reference stores.id with no cascade.
   await db.execute(sql`DELETE FROM capital_contributions WHERE store_id = ${storeId}`);

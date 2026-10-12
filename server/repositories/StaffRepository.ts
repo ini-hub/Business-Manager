@@ -2,6 +2,7 @@ import { db } from "../db";
 import { getStoreTimezone, toUtcStart, toUtcEnd } from "../lib/dateUtils";
 import {
   staff,
+  staffStoreAssignments,
   stores,
   checkouts,
   orders,
@@ -122,9 +123,12 @@ export class StaffRepository {
     const [store] = await db.select().from(stores).where(eq(stores.id, storeId));
     if (!store) throw new Error("Store not found");
 
-    const existingStaff = await db.select({ staffNumber: staff.staffNumber })
-      .from(staff)
-      .where(eq(staff.storeId, storeId));
+    // A person homed elsewhere but assigned here holds a number in this store's
+    // sequence too (staff_assignment_store_number_unique), so count both.
+    const existingStaff = await db.select({ staffNumber: staffStoreAssignments.staffNumber })
+      .from(staffStoreAssignments)
+      .where(eq(staffStoreAssignments.storeId, storeId))
+      .union(db.select({ staffNumber: staff.staffNumber }).from(staff).where(eq(staff.storeId, storeId)));
 
     const usedNumbers = new Set<number>();
     const prefix = `${store.code}-`;
@@ -224,6 +228,61 @@ export class StaffRepository {
     return db.select().from(staff).where(and(eq(staff.userId, userId), eq(staff.isArchived, false)));
   }
 
+  /** Every store this staff person is assigned to (home store included), archived assignments excluded. */
+  async assignedStoreIds(staffId: string): Promise<string[]> {
+    const rows = await db.select({ storeId: staffStoreAssignments.storeId })
+      .from(staffStoreAssignments)
+      .where(and(eq(staffStoreAssignments.staffId, staffId), eq(staffStoreAssignments.isArchived, false)));
+    return rows.map((r) => r.storeId);
+  }
+
+  /**
+   * Store ids a login may work in: the union of active assignments over all of
+   * its non-archived staff rows. Unmerged legacy duplicates (one row per store)
+   * therefore keep working, and a row without an assignment falls back to its
+   * home store.
+   */
+  async assignedStoreIdsForUser(userId: string): Promise<string[]> {
+    const rows = await db.select({
+      homeStoreId: staff.storeId,
+      assignedStoreId: staffStoreAssignments.storeId,
+      assignmentArchived: staffStoreAssignments.isArchived,
+    })
+      .from(staff)
+      .leftJoin(staffStoreAssignments, eq(staffStoreAssignments.staffId, staff.id))
+      .where(and(eq(staff.userId, userId), eq(staff.isArchived, false)));
+    const ids = new Set<string>();
+    for (const r of rows) {
+      if (r.assignedStoreId === null) ids.add(r.homeStoreId);
+      else if (!r.assignmentArchived) ids.add(r.assignedStoreId);
+    }
+    return Array.from(ids);
+  }
+
+  /**
+   * The staff record that represents this login at `storeId`: a row homed there
+   * (legacy shape) or a row assigned there. Prefers the home row, then active, then oldest.
+   */
+  async getStaffForUserInStore(userId: string, storeId: string): Promise<Staff | undefined> {
+    const rows = await db.select({ member: staff, assignmentArchived: staffStoreAssignments.isArchived })
+      .from(staff)
+      .leftJoin(
+        staffStoreAssignments,
+        and(eq(staffStoreAssignments.staffId, staff.id), eq(staffStoreAssignments.storeId, storeId)),
+      )
+      .where(and(
+        eq(staff.userId, userId),
+        or(eq(staff.storeId, storeId), sql`${staffStoreAssignments.id} IS NOT NULL`),
+      ))
+      .orderBy(
+        sql`(${staff.storeId} = ${storeId}) DESC`,
+        asc(staff.isArchived),
+        asc(staff.createdAt),
+      );
+    const hit = rows.find((r) => r.assignmentArchived !== true) ?? rows[0];
+    return hit?.member;
+  }
+
   /**
    * Raw material for the inviteStatus projection, fetched for a whole page of
    * staff in one query so the list route stays O(1) in DB round-trips.
@@ -294,6 +353,15 @@ export class StaffRepository {
         // required by insertStaffSchema, so this is always the real full name.
         name: composeFullName(staffMember.firstName, staffMember.lastName),
       }).returning();
+      // Home assignment: staff.storeId is the home store and always has one (migration 0129).
+      await tx.insert(staffStoreAssignments).values({
+        staffId: newStaff.id,
+        storeId: newStaff.storeId,
+        staffNumber: newStaff.staffNumber,
+        role: newStaff.role,
+        punchPinHash: newStaff.punchPinHash,
+        isArchived: false,
+      });
       return newStaff;
     });
   }
@@ -314,8 +382,22 @@ export class StaffRepository {
       };
     }
 
-    const [updated] = await db.update(staff).set(normalizedData).where(eq(staff.id, id)).returning();
-    return updated;
+    return db.transaction(async (tx) => {
+      const [updated] = await tx.update(staff).set(normalizedData).where(eq(staff.id, id)).returning();
+      if (updated) {
+        // Mirror the per-store fields onto the home assignment (see migration 0129).
+        const mirror: Partial<typeof staffStoreAssignments.$inferInsert> = {};
+        if (normalizedData.staffNumber !== undefined) mirror.staffNumber = updated.staffNumber;
+        if (normalizedData.role !== undefined) mirror.role = updated.role;
+        if (Object.keys(mirror).length) {
+          await tx.update(staffStoreAssignments).set(mirror).where(and(
+            eq(staffStoreAssignments.staffId, id),
+            eq(staffStoreAssignments.storeId, updated.storeId),
+          ));
+        }
+      }
+      return updated;
+    });
   }
 
   async transferStaff(id: string, targetStoreId: string): Promise<Staff | undefined> {
@@ -325,12 +407,37 @@ export class StaffRepository {
     const sourceStoreId = staffMembers[0].storeId;
     const sourceStore = await db.select().from(stores).where(eq(stores.id, sourceStoreId)).limit(1);
 
-    const newStaffNumber = await this.getNextAvailableStaffNumber(targetStoreId);
+    // Already assigned to the target (an extra store becoming the home store): keep that number.
+    const [existing] = await db.select().from(staffStoreAssignments).where(and(
+      eq(staffStoreAssignments.staffId, id),
+      eq(staffStoreAssignments.storeId, targetStoreId),
+    ));
+    const newStaffNumber = existing?.staffNumber ?? await this.getNextAvailableStaffNumber(targetStoreId);
 
-    const [updated] = await db.update(staff).set({
-      storeId: targetStoreId,
-      staffNumber: newStaffNumber,
-    }).where(eq(staff.id, id)).returning();
+    const updated = await db.transaction(async (tx) => {
+      // Release the source assignment first so its number is free and the person is no longer there.
+      await tx.delete(staffStoreAssignments).where(and(
+        eq(staffStoreAssignments.staffId, id),
+        eq(staffStoreAssignments.storeId, sourceStoreId),
+      ));
+      const [row] = await tx.update(staff).set({
+        storeId: targetStoreId,
+        staffNumber: newStaffNumber,
+      }).where(eq(staff.id, id)).returning();
+      if (existing) {
+        await tx.update(staffStoreAssignments).set({ isArchived: false, role: row.role }).where(eq(staffStoreAssignments.id, existing.id));
+      } else {
+        await tx.insert(staffStoreAssignments).values({
+          staffId: id,
+          storeId: targetStoreId,
+          staffNumber: newStaffNumber,
+          role: row.role,
+          punchPinHash: row.punchPinHash,
+          isArchived: row.isArchived,
+        });
+      }
+      return row;
+    });
 
     if (sourceStore.length && sourceStore[0].managerStaffId === id) {
       await db.update(stores).set({ managerStaffId: null }).where(eq(stores.id, sourceStoreId));
@@ -391,8 +498,16 @@ export class StaffRepository {
   }
 
   async archiveStaff(id: string): Promise<Staff | undefined> {
-    const [updated] = await db.update(staff).set({ isArchived: true }).where(eq(staff.id, id)).returning();
-    return updated;
+    return db.transaction(async (tx) => {
+      const [updated] = await tx.update(staff).set({ isArchived: true }).where(eq(staff.id, id)).returning();
+      if (updated) {
+        await tx.update(staffStoreAssignments).set({ isArchived: true }).where(and(
+          eq(staffStoreAssignments.staffId, id),
+          eq(staffStoreAssignments.storeId, updated.storeId),
+        ));
+      }
+      return updated;
+    });
   }
 
   async restoreStaff(id: string): Promise<Staff | undefined> {
@@ -404,6 +519,12 @@ export class StaffRepository {
         if (businessId) await assertWithinCountLimit(tx, businessId, "staff_seats", 1, current.storeId);
       }
       const [updated] = await tx.update(staff).set({ isArchived: false }).where(eq(staff.id, id)).returning();
+      if (updated) {
+        await tx.update(staffStoreAssignments).set({ isArchived: false }).where(and(
+          eq(staffStoreAssignments.staffId, id),
+          eq(staffStoreAssignments.storeId, updated.storeId),
+        ));
+      }
       return updated;
     });
   }
