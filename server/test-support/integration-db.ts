@@ -250,6 +250,15 @@ async function destroyStore(storeId: string, businessId: string): Promise<void> 
     DELETE FROM hr_guarantor_form_versions
       WHERE guarantor_form_id IN (SELECT id FROM hr_guarantor_forms WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId}))`);
   await db.execute(sql`DELETE FROM hr_guarantor_forms WHERE staff_id IN (SELECT id FROM staff WHERE store_id = ${storeId})`);
+  // Clock-ins award gamification points/streaks, which reference the store without a cascade.
+  await db.execute(sql`DELETE FROM gamification_points_ledger WHERE store_id = ${storeId}`);
+  await db.execute(sql`DELETE FROM gamification_badge_awards WHERE store_id = ${storeId}`);
+  await db.execute(sql`DELETE FROM gamification_streaks WHERE store_id = ${storeId}`);
+  // A person homed here can have records at OTHER stores they are assigned to (attendance, punches);
+  // those reference this store's staff, so they go before the staff do.
+  for (const table of ["attendance_records", "attendance_punches", "attendance_retro_requests", "staff_devices"]) {
+    await db.execute(sql.raw(`DELETE FROM ${table} WHERE staff_id IN (SELECT id FROM staff WHERE store_id = '${storeId}')`));
+  }
   // Assignments of people homed elsewhere also reference this store (no cascade
   // on store_id); rows for this store's own staff cascade with the DELETE below.
   await db.execute(sql`DELETE FROM staff_store_assignments WHERE store_id = ${storeId}`);

@@ -58,6 +58,7 @@ afterEach(async () => {
   for (const f of fixtures) {
     const s = sql`${f.storeId}`;
     await db.execute(sql`DELETE FROM payroll_deductions WHERE store_id = ${s}`);
+    await db.execute(sql`DELETE FROM attendance_records WHERE store_id = ${s}`);
     await db.execute(sql`DELETE FROM attendance_retro_requests WHERE store_id = ${s}`);
     await db.execute(sql`DELETE FROM attendance_punches WHERE store_id = ${s}`);
     await db.execute(sql`DELETE FROM staff_devices WHERE store_id = ${s}`);
