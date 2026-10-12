@@ -336,20 +336,6 @@ export default function Signup() {
                     </FormItem>
                   )}
                 />
-
-                <FormField
-                  control={form.control}
-                  name="businessStructure"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>How is your business set up?</FormLabel>
-                      <FormControl>
-                        <BusinessStructurePicker value={field.value} onChange={field.onChange} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
               </div>
 
               <div className="ks-stack">
@@ -486,6 +472,22 @@ export default function Signup() {
                 />
               )}
 
+              <FormField
+                control={form.control}
+                name="businessStructure"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>How is your business set up?</FormLabel>
+                    <FormControl>
+                      {/* Takes the field ref so a failed submit scrolls to the picker. */}
+                      <div ref={field.ref} tabIndex={-1} className="outline-none">
+                        <BusinessStructurePicker value={field.value} onChange={field.onChange} />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               <FormField
                 control={form.control}
                 name="acceptedLegalTerms"
