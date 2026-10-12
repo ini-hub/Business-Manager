@@ -546,7 +546,7 @@ export const FEATURES = [
     key: "core_platform", section: "management", module: "Dashboard", name: "Core Platform", description: "Sign-in, billing, support, notifications, stores and business settings. Always available.",
     category: "business_settings", tier: "free", active: true, sortOrder: 300,
     domains: [
-      "auth", "audit-logs", "billing", "business", "funnel-events", "legal", "notifications",
+      "auth", "audit-logs", "billing", "business", "exchange-rates", "funnel-events", "legal", "notifications",
       "payments", "profile-completion", "settings", "stores", "support", "webhooks",
     ],
     screens: [

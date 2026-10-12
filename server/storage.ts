@@ -1447,8 +1447,8 @@ class DatabaseStorage implements IStorage {
     return this.payrollRepo.createPayrollPeriod(data);
   }
 
-  async updatePayrollPeriodStatus(id: string, status: PayrollPeriodStatus, userId?: string, exec?: DbExecutor): Promise<PayrollPeriod | undefined> {
-    return this.payrollRepo.updatePayrollPeriodStatus(id, status, userId, exec);
+  async updatePayrollPeriodStatus(id: string, status: PayrollPeriodStatus, userId?: string, exec?: DbExecutor, ratesSnapshot?: unknown): Promise<PayrollPeriod | undefined> {
+    return this.payrollRepo.updatePayrollPeriodStatus(id, status, userId, exec, ratesSnapshot);
   }
 
   async deletePayrollPeriod(id: string): Promise<boolean> {

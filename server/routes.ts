@@ -64,6 +64,7 @@ import { registerBusinessRoutes } from "./routes/business.routes";
 import { registerBootstrapRoutes } from "./routes/bootstrap.routes";
 import { registerCustomerRoutes } from "./routes/customer.routes";
 import { registerStaffRoutes } from "./routes/staff.routes";
+import { registerExchangeRateRoutes } from "./routes/exchangeRates.routes";
 import { registerHrRoutes } from "./routes/hr.routes";
 import { adminHrRouter } from "./routes/admin-hr.routes";
 import { registerInventoryRoutes } from "./routes/inventory.routes";
@@ -1868,6 +1869,7 @@ export async function registerRoutes(
   registerBootstrapRoutes(app, routeMiddlewares);
   registerCustomerRoutes(app, routeMiddlewares);
   registerStaffRoutes(app, routeMiddlewares);
+  registerExchangeRateRoutes(app, routeMiddlewares);
   registerHrRoutes(app, routeMiddlewares);
   registerInventoryRoutes(app, routeMiddlewares);
   registerInventoryDraftRoutes(app, routeMiddlewares);

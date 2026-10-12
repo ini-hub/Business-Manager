@@ -82,6 +82,9 @@ export const payrollPeriods = pgTable("payroll_periods", {
   endDate: text("end_date").notNull(),   // ISO date YYYY-MM-DD
   status: text("status").notNull().default("pending"), // pending, approved, paid
   settingsSnapshot: jsonb("settings_snapshot"), // Snapshot of rates used at calculation time
+  // Exchange rates in force when the period was approved (rows of exchange_rates converting into this
+  // store's currency). Once set, conversions for this period read from here, never from the live table.
+  ratesSnapshot: jsonb("rates_snapshot"),
   approvedByUserId: varchar("approved_by_user_id").references(() => users.id),
   approvedAt: timestamp("approved_at"),
   paidAt: timestamp("paid_at"),
@@ -100,7 +103,7 @@ export const payrollPeriodsRelations = relations(payrollPeriods, ({ one, many })
   entries: many(payrollEntries),
 }));
 
-export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({ id: true, createdAt: true, approvedAt: true, paidAt: true, settingsSnapshot: true }).extend({
+export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({ id: true, createdAt: true, approvedAt: true, paidAt: true, settingsSnapshot: true, ratesSnapshot: true }).extend({
   periodType: z.enum(payrollPeriodTypeEnum).default("monthly"),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Start date must be YYYY-MM-DD"),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "End date must be YYYY-MM-DD"),

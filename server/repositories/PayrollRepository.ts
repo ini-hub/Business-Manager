@@ -109,11 +109,19 @@ export class PayrollRepository {
    * never leave a posted-but-not-paid period behind. Ordinary callers omit it
    * and get the pool directly, same as before.
    */
-  async updatePayrollPeriodStatus(id: string, status: PayrollPeriodStatus, userId?: string, exec: DbExecutor = db): Promise<PayrollPeriod | undefined> {
+  async updatePayrollPeriodStatus(
+    id: string,
+    status: PayrollPeriodStatus,
+    userId?: string,
+    exec: DbExecutor = db,
+    /** Exchange rates frozen onto the period when it is approved (null when there are none). */
+    ratesSnapshot?: unknown,
+  ): Promise<PayrollPeriod | undefined> {
     const setData: Partial<PayrollPeriod> = { status };
     if (status === "approved") {
       setData.approvedByUserId = userId;
       setData.approvedAt = new Date();
+      if (ratesSnapshot !== undefined) setData.ratesSnapshot = ratesSnapshot;
     }
     if (status === "paid") {
       setData.paidAt = new Date();

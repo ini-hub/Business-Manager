@@ -1,4 +1,5 @@
 import { parsePage, paginated } from "../lib/pagination";
+import { exchangeRateService } from "../services/ExchangeRateService";
 import { buildPayrollReport } from "../lib/payrollReport";
 import type { Express, Request, Response } from "express";
 import { storage } from "../storage";
@@ -322,7 +323,12 @@ export function registerPayrollRoutes(app: Express, { isAuthenticated, requireRo
       if (!period) return res.status(404).json({ error: "Payroll period not found." });
       if (!(await checkStoreAccess(period.storeId, req, res))) return;
       const userId = (req as any).user?.id;
-      const updated = await storage.updatePayrollPeriodStatus(req.params.id, "approved", userId);
+      // Freeze the exchange rates in force, so a later rate edit cannot change this period.
+      const store = await storage.getStore(period.storeId);
+      const rates = store?.businessId && store.currency
+        ? await exchangeRateService.snapshotFor(store.businessId, store.currency, period.endDate)
+        : [];
+      const updated = await storage.updatePayrollPeriodStatus(req.params.id, "approved", userId, undefined, rates.length ? rates : null);
       if (!updated) return res.status(404).json({ error: "Payroll period not found." });
       const ctx = await getAuditContext(req, { storeId: period.storeId });
       auditLogger.logEvent(ctx, "PAYROLL_PERIOD_APPROVE", "payroll_period", req.params.id, "success", {

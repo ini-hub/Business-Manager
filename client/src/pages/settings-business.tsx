@@ -18,6 +18,7 @@ import { formatCurrency } from "@/lib/currency-utils";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/loader";
 import { DeleteBusinessDialog } from "@/components/delete-business-dialog";
+import { ExchangeRatesCard } from "@/components/exchange-rates-card";
 
 type Draft = {
   name: string;
@@ -369,6 +370,8 @@ export default function SettingsBusinessPage() {
       ) : (
         <p className="text-sm text-muted-foreground">Only the owner can change the business profile.</p>
       )}
+
+      {user?.role === "owner" || user?.role === "manager" ? <ExchangeRatesCard canEdit={isOwner} /> : null}
 
       {isOwner && (
         <Card title="Danger zone" hint="Closing the business signs everyone out. Your records are kept, and only our team can restore them.">
